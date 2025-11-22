@@ -1,0 +1,21 @@
+# git config --local core.hooksPath .git/hooks
+pre-commit:
+  jobs:
+    - run: npx ultracite fix
+      glob:
+        - "*.js"
+        - "*.jsx"
+        - "*.ts"
+        - "*.tsx"
+        - "*.json"
+        - "*.jsonc"
+        - "*.css"
+      stage_fixed: true
+    - run: npx tsc --noEmit
+      glob: "*.{ts,tsx}"
+
+prepare-commit-msg:
+  commands:
+    commitizen:
+      interactive: true
+      run: npx cz --hook || true

@@ -1,11 +1,11 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
-export interface BearState {
+export type BearState = {
   bears: number;
   increasePopulation: () => void;
   removeAllBears: () => void;
   updateBears: (newBears: number) => void;
-}
+};
 
 export const useStore = create<BearState>((set) => ({
   bears: 0,

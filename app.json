@@ -3,7 +3,6 @@
     "name": "BalNostixUI-Modern",
     "slug": "BalNostixUI-Modern",
     "version": "1.0.0",
-
     "scheme": "BalNostixUI-Modern",
     "platforms": ["ios", "android"],
     "web": {
@@ -14,15 +13,11 @@
     "plugins": ["expo-router"],
     "experiments": {
       "typedRoutes": true,
-
       "tsconfigPaths": true
     },
-
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-
     "userInterfaceStyle": "light",
-
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -36,7 +31,8 @@
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.dinakar777.BalNostixUIModern"
     }
   }
 }
