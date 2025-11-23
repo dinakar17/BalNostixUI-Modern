@@ -10,7 +10,8 @@
         "noDangerouslySetInnerHtml": "off"
       },
       "suspicious": {
-        "noConsole": "off"
+        "noConsole": "off",
+        "noExplicitAny": "warn"
       },
       "complexity": {
         "noExcessiveCognitiveComplexity": "warn"
