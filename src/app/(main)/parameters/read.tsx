@@ -1,4 +1,3 @@
-import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -9,19 +8,17 @@ import {
   ScrollView,
   Switch,
   Text,
-  TouchableOpacity,
   View,
 } from "react-native";
-import { scanAgain } from "@/assets/images";
+import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
 import { OverlayLoading } from "@/components/ui/overlay";
 import { ShadowBox } from "@/components/ui/shadow-box";
 import { toastError } from "@/lib/toast";
-import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 import type { DIDParameter } from "@/types/ecu";
 
-const { BluetoothModule, USBModule } = NativeModules;
+const { BluetoothModule } = NativeModules;
 
 type ReadParameterResponse = {
   name: string;
@@ -35,7 +32,6 @@ export default function ReadParametersScreen() {
     ecuIndex: string;
     groupName: string;
   }>();
-  const { dataTransferMode } = useAuthStore();
   const { selectedEcu, isDonglePhase3State, updateDongleToDisconnected } =
     useDataTransferStore();
 
@@ -46,9 +42,7 @@ export default function ReadParametersScreen() {
   const [isReadParameterRunning, setIsReadParameterRunning] = useState(true);
   const [list, setList] = useState<DIDParameter[]>([]);
 
-  const eventEmitter = new NativeEventEmitter(
-    dataTransferMode === "USB" ? USBModule : BluetoothModule
-  );
+  const eventEmitter = new NativeEventEmitter(BluetoothModule);
 
   const getList = () => {
     try {
@@ -103,7 +97,7 @@ export default function ReadParametersScreen() {
     }
   };
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Event listeners setup should only run once
+  // biome-ignore lint/correctness/useExhaustiveDependencies: we only want to run this once on mount
   useEffect(() => {
     const nativeListener = eventEmitter.addListener(
       "readparameters",
@@ -119,9 +113,10 @@ export default function ReadParametersScreen() {
     };
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Run only once on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: we only want to run this once on mount
   useEffect(() => {
     getList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleBackButton() {
@@ -132,52 +127,46 @@ export default function ReadParametersScreen() {
   }
 
   useFocusEffect(
-    // biome-ignore lint/correctness/useExhaustiveDependencies: Complex event handling from original implementation
+    // biome-ignore lint/correctness/useExhaustiveDependencies: we only want to run this once on mount
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
         handleBackButton
       );
       return () => subscription.remove();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loading])
   );
 
   const showAutoUpdate = () => {
+    const groupNameFromEcuRecord =
+      selectedEcu?.readParamAutoRefreshShownInGroupName;
+
     // If no data, don't show auto-update
     if (list.length === 0) {
       return false;
     }
 
-    // Show auto-update based on ECU configuration
-    return selectedEcu.readParamAutoRefreshShownInGroupName === groupName;
+    // If groupNameFromEcuRecord is null or empty, show auto-update
+    if (!groupNameFromEcuRecord || groupNameFromEcuRecord === "") {
+      return true;
+    }
+
+    // Compare group names (case-insensitive, with underscores)
+    return (
+      (groupName || "").replace(" ", "_").toLowerCase() ===
+      groupNameFromEcuRecord.toLowerCase()
+    );
   };
 
   const ScanAgainButton = () => {
     const isDisabled = autoUpdate || isReadParameterRunning;
     return (
-      <TouchableOpacity
-        className={`h-12 items-center justify-center rounded-lg ${
-          isDisabled ? "bg-gray-500" : "bg-blue-600"
-        }`}
-        disabled={isDisabled}
-        onPress={() => {
-          getList();
-        }}
-      >
-        <View className="flex-row items-center justify-center">
-          <Image
-            contentFit="contain"
-            source={scanAgain}
-            style={{
-              height: 35,
-              width: 35,
-              marginRight: 8,
-              tintColor: "white",
-            }}
-          />
-          <Text className="font-bold text-lg text-white">Scan Again</Text>
-        </View>
-      </TouchableOpacity>
+      <PrimaryButton
+        inactive={isDisabled}
+        onPress={getList}
+        text="Scan Again"
+      />
     );
   };
 
@@ -188,7 +177,7 @@ export default function ReadParametersScreen() {
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
         rightButtonFunction={updateDongleToDisconnected}
-        rightButtonType="settings"
+        rightButtonType="menu"
         title="READ PARAMETERS"
       />
 
@@ -200,7 +189,7 @@ export default function ReadParametersScreen() {
           <View className="absolute right-0 mt-1 flex-row items-center p-2">
             <Text className="font-bold">Auto-Update</Text>
             <Switch
-              onValueChange={() => toggleAutoUpdate(!autoUpdate)}
+              onChange={() => toggleAutoUpdate(!autoUpdate)}
               style={{ marginLeft: 10 }}
               thumbColor={autoUpdate ? "#ffffff" : "#f4f3f4"}
               trackColor={{ false: "#BAC7D5", true: "#0063B1" }}
@@ -217,20 +206,16 @@ export default function ReadParametersScreen() {
               data={list}
               keyExtractor={(item, index) => `${item.description}-${index}`}
               renderItem={({ item }) => (
-                <View className="flex-row border-gray-400 border-b-[0.5px]">
-                  <View className="flex-1 py-4">
-                    <Text className="mx-4 mb-2 font-bold text-gray-400 text-lg">
-                      {item.description}
-                    </Text>
-                    <Text className="mx-4 font-bold text-lg">{item.value}</Text>
-                  </View>
+                <View className="border-gray-200 border-b py-4">
+                  <Text className="mx-4 mb-2 font-bold text-gray-400 text-lg">
+                    {item.description}
+                  </Text>
+                  <Text className="mx-4 font-bold text-lg">{item.value}</Text>
                 </View>
               )}
               scrollEnabled={false}
             />
-            <View className="justify-end">
-              <View className="mx-4 mt-4 mb-12" />
-            </View>
+            <View className="mb-12" />
           </ScrollView>
           <ShadowBox style={{ paddingHorizontal: 16, paddingVertical: 16 }}>
             <ScanAgainButton />

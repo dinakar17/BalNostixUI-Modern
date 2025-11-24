@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import { Directory, Paths } from "expo-file-system";
+import { Directory, File, Paths } from "expo-file-system";
 import { Image } from "expo-image";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -13,13 +13,13 @@ import {
   Text,
   View,
 } from "react-native";
-import { useMMKVObject, useMMKVString } from "react-native-mmkv";
+import { useMMKVObject } from "react-native-mmkv";
 import { Bar as ProgressBar } from "react-native-progress";
 import { zip } from "react-native-zip-archive";
 
 import { infoIcon } from "@/assets/images/index";
 import { PrimaryButton } from "@/components/ui/button";
-import { OverlayLoading } from "@/components/ui/overlay";
+import { CustomHeader } from "@/components/ui/header";
 import { colors } from "@/constants/colors";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 
@@ -76,13 +76,13 @@ type OACData = {
 
 export default function ECUDumpScreen() {
   // Zustand stores
-  const { selectedEcu } = useDataTransferStore();
-  const currentVIN = selectedEcu?.vinNumber || "";
+  const { selectedEcu, vin, isDonglePhase3State, updateDongleToDisconnected } =
+    useDataTransferStore();
+  const currentVIN = vin || selectedEcu?.vinNumber || "";
 
   // MMKV storage
   const [jsonDataOAC, setJsonDataOAC] = useMMKVObject<OACData>("jsonDataOAC");
   const [eeDumpJobs, setEeDumpJobs] = useMMKVObject<EeDumpJob[]>("eeDumpJobs");
-  const [visibleDisConnectBtn] = useMMKVString("visibleDisConnectBtn");
 
   // State
   const [eDumpState, setEDumpState] = useState<EDumpState>({
@@ -104,21 +104,21 @@ export default function ECUDumpScreen() {
 
   // Save OAC status to MMKV
   const OfflineAnalysticCollectedSaveDetails = (
-    vin: string,
+    vinNumber: string,
     status: OACStatus
   ) => {
-    if (!(vin && selectedEcu)) {
+    if (!(vinNumber && selectedEcu)) {
       return;
     }
 
     const currentDate = dayjs().format("YYYY-MM-DD");
     const updatedOACData = { ...(jsonDataOAC || {}) };
 
-    if (!updatedOACData[vin]) {
-      updatedOACData[vin] = {};
+    if (!updatedOACData[vinNumber]) {
+      updatedOACData[vinNumber] = {};
     }
 
-    updatedOACData[vin][selectedEcu.ecuName] = {
+    updatedOACData[vinNumber][selectedEcu.ecuName] = {
       oaDate: currentDate,
       oaDataStatus: status,
     };
@@ -129,7 +129,9 @@ export default function ECUDumpScreen() {
   // Delete previous EEDUMP folder using modern API
   const deleteEEDumpPreviousTry = () => {
     try {
-      const eeDumpDir = new Directory(Paths.document, "EEDUMP");
+      const documentPath = Paths.document.uri.replace("file://", "");
+      const eeDumpPath = documentPath.replace("files", "EEDUMP");
+      const eeDumpDir = new Directory(`file://${eeDumpPath}`);
 
       if (eeDumpDir.exists) {
         eeDumpDir.delete();
@@ -145,28 +147,45 @@ export default function ECUDumpScreen() {
     try {
       const timestamp = dayjs().valueOf();
       const fileName = `${timestamp}_${currentVIN}.zip`;
-      const sourceDir = new Directory(Paths.document, "EEDUMP");
-      const jobsDir = new Directory(Paths.document, "EE_DUMP_Jobs");
-      const targetPath = `${jobsDir.uri}/${fileName}`;
 
-      // Ensure EE_DUMP_Jobs directory exists using modern API
+      // Get document path and construct EEDUMP path
+      const documentPath = Paths.document.uri.replace("file://", "");
+      const eeDumpPath = documentPath.replace("files", "EEDUMP");
+
+      // Construct jobs directory path
+      const jobsDirPath = `${documentPath}/EE_DUMP_Jobs`;
+      const jobsDir = new Directory(`file://${jobsDirPath}`);
+
+      // Ensure EE_DUMP_Jobs directory exists
       if (!jobsDir.exists) {
         jobsDir.create();
+        console.log(`[EDS:CreateJob] Created jobs directory: ${jobsDir.uri}`);
       }
 
-      // Check if EEDUMP exists
-      if (!sourceDir.exists) {
-        console.log("EEDUMP folder does not exist");
-        return false;
+      const targetPath = `${jobsDirPath}/${fileName}`;
+
+      // Create zip (react-native-zip-archive uses plain paths without file://)
+      console.log(
+        `[EDS:CreateJob] Creating zip: ${fileName} from ${eeDumpPath}`
+      );
+      await zip(eeDumpPath, targetPath);
+
+      // Clean up source directory after zipping
+      const sourceDir = new Directory(`file://${eeDumpPath}`);
+      if (sourceDir.exists) {
+        const items = sourceDir.list();
+        for (const item of items) {
+          if (item instanceof File) {
+            item.delete();
+            console.log(`[EDS:CreateJob] Deleted: ${item.name}`);
+          }
+        }
       }
 
-      // Create zip (react-native-zip-archive still uses URI strings)
-      await zip(sourceDir.uri, targetPath);
-
-      // Add to job queue with dayjs for ISO string
+      // Add to job queue
       const newJob: EeDumpJob = {
         filePath: targetPath,
-        time: dayjs().toISOString(),
+        time: dayjs().format("YYYY-MM-DD_HH:mm:ss"),
         vin_number: currentVIN || "",
         ecu_name: selectedEcu?.ecuName || "",
         status: "pending",
@@ -175,7 +194,9 @@ export default function ECUDumpScreen() {
       const updatedJobs = [...(eeDumpJobs || []), newJob];
       setEeDumpJobs(updatedJobs);
 
-      console.log("Job created:", newJob);
+      console.log(
+        `[EDS:CreateJob] Job queued - VIN: ${currentVIN}, ECU: ${selectedEcu?.ecuName}`
+      );
       return true;
     } catch (error) {
       console.log("Create job error:", error);
@@ -195,7 +216,30 @@ export default function ECUDumpScreen() {
       // biome-ignore lint/suspicious/noExplicitAny: Native module method not fully typed
       (BluetoothModule as any).saveAppLog(selectedEcu?.index || 0);
 
-      await createJob();
+      // Check if EEDUMP folder exists and has files
+      const documentPath = Paths.document.uri.replace("file://", "");
+      const eeDumpPath = documentPath.replace("files", "EEDUMP");
+
+      // Try to access EEDUMP directory
+      let filesExist = false;
+      try {
+        const eeDumpUri = `file://${eeDumpPath}`;
+        const eeDumpDir = new Directory(eeDumpUri);
+
+        if (eeDumpDir.exists) {
+          const items = eeDumpDir.list();
+          filesExist = items.length > 0;
+          console.log(`[EDS:PostSuccess] EEDUMP has ${items.length} file(s)`);
+        } else {
+          console.log("[EDS:PostSuccess] EEDUMP folder does not exist");
+        }
+      } catch (error) {
+        console.log("[EDS:PostSuccess] Error checking EEDUMP:", error);
+      }
+
+      if (filesExist) {
+        await createJob();
+      }
 
       // Check remaining jobs after upload attempt
       const failJobMap = eeDumpJobs;
@@ -207,7 +251,9 @@ export default function ECUDumpScreen() {
             message: "All files have been successfully uploaded to the server.",
           }));
         } else {
-          console.log("Failed jobs:", failJobMap);
+          console.log(
+            `[EDS:Upload] ${failJobMap.length} job(s) remaining in queue`
+          );
           setEDumpState((prev) => ({
             ...prev,
             isUploadStatus: false,
@@ -478,16 +524,21 @@ export default function ECUDumpScreen() {
   };
 
   const FailureModal = () => (
-    <View className="absolute top-0 right-0 bottom-0 left-0 items-center justify-center bg-black/50">
-      <View className="mx-8 items-center rounded-lg bg-white p-6">
-        <Image className="mb-4 h-12 w-12" source={infoIcon} />
-        <Text className="mb-2 text-center font-bold text-xl">
-          Collection Failed
-        </Text>
-        <Text className="mb-4 text-center text-base text-gray-600">
+    <View className="absolute inset-0 items-center justify-center bg-black/50">
+      <View
+        className="items-center rounded-lg bg-white px-4 py-4"
+        style={{ width: SCREEN_WIDTH / 1.2 }}
+      >
+        <View className="items-center">
+          <Image className="h-10 w-10" source={infoIcon} />
+        </View>
+        <Text
+          className="mt-4 mb-4 text-center font-bold text-lg"
+          style={{ marginHorizontal: 16 }}
+        >
           {eDumpState.message}
         </Text>
-        <View className="mt-2">
+        <View className="mt-6">
           <PrimaryButton
             onPress={() => {
               setShowConfirmationModal(false);
@@ -557,75 +608,116 @@ export default function ECUDumpScreen() {
   );
 
   return (
-    <View className="flex-1 bg-gray-50">
-      {eDumpState.status === "LOADING" && (
-        <View className="flex-1 items-center justify-center">
-          <OverlayLoading loading />
-          <View
-            className="mx-4 rounded-lg bg-white p-4"
-            style={{ width: SCREEN_WIDTH - 32 }}
+    <>
+      <CustomHeader
+        leftButtonFunction={() => null}
+        leftButtonType="back"
+        onDisconnect={updateDongleToDisconnected}
+        renderLeftButton={true}
+        renderRightButton={isDonglePhase3State}
+        rightButtonType="menu"
+        title="CONTROLLER"
+      />
+
+      <View style={{ flex: 1 }}>
+        {/* ECU Name Header */}
+        <View>
+          <Text
+            className="text-center font-bold text-xl"
+            style={{ marginVertical: 16 }}
           >
-            <Text className="mb-2 text-center font-bold text-lg">
-              {eDumpState.message}
-            </Text>
-            <Text className="mb-4 text-center text-gray-600 text-sm">
-              {eDumpState.responseMsg}
-            </Text>
-
-            <View className="mt-4">
-              <Text className="mb-2 font-bold text-lg">Progress:</Text>
-              <View className="flex-row items-center">
-                <ProgressBar
-                  animated={false}
-                  borderColor="#f4f4f4"
-                  color={colors.primaryColor}
-                  progress={getPercentage(eDumpState.mainProgress) / 100}
-                  unfilledColor="#f4f4f4"
-                  width={SCREEN_WIDTH / 1.5}
-                />
-                <Text className="ml-2 w-14 text-sm">
-                  {getPercentage(eDumpState.mainProgress)} %
-                </Text>
-              </View>
-            </View>
-          </View>
+            {selectedEcu?.ecuName || ""}
+          </Text>
         </View>
-      )}
 
-      {eDumpState.status === "DONE" && (
-        <View className="flex-1 items-center justify-center bg-white py-4">
-          {eDumpState.isUploadStatus === undefined ? (
-            <View className="items-center bg-white">
-              <OverlayLoading loading />
-            </View>
-          ) : (
-            <View className="items-center">
-              <Image className="h-10 w-10" source={infoIcon} />
+        {/* Main Content Area */}
+        <View
+          className="flex-1 items-center justify-center"
+          style={{ backgroundColor: "#f3f3f3", marginHorizontal: 16 }}
+        >
+          {/* Loading State */}
+          {eDumpState.status === "LOADING" && (
+            <View
+              className="items-center justify-center rounded-lg bg-white"
+              style={{
+                width: SCREEN_WIDTH - 64,
+                minHeight: 200,
+                paddingHorizontal: 16,
+                paddingVertical: 16,
+                borderWidth: 0.4,
+                borderRadius: 6,
+                top: -34,
+              }}
+            >
+              <View style={{ width: "100%" }}>
+                <Text className="font-bold text-lg" style={{ marginBottom: 8 }}>
+                  {eDumpState.message}
+                </Text>
+                <Text className="font-bold text-lg" style={{ marginBottom: 8 }}>
+                  Progress:
+                </Text>
+                <View
+                  className="flex-row items-center"
+                  style={{ width: "100%" }}
+                >
+                  <ProgressBar
+                    animated={false}
+                    borderColor="#f4f4f4"
+                    color={colors.primaryColor}
+                    progress={getPercentage(eDumpState.mainProgress) / 100}
+                    unfilledColor="#f4f4f4"
+                    width={SCREEN_WIDTH - 64 - 32 - 48}
+                  />
+                  <Text
+                    className="ml-2 font-bold"
+                    style={{ width: 48, textAlign: "right" }}
+                  >
+                    {getPercentage(eDumpState.mainProgress)}%
+                  </Text>
+                </View>
+              </View>
             </View>
           )}
 
-          <Text className="mx-4 mt-4 mb-4 text-center font-bold text-xl">
-            {eDumpState.isUploadStatus === undefined
-              ? "Finished Offline Analytic Successfully, \nPlease wait, uploading the file"
-              : eDumpState.message}
-          </Text>
+          {/* Done State */}
+          {eDumpState.status === "DONE" && (
+            <View className="bg-white" style={{ paddingVertical: 16 }}>
+              {eDumpState.isUploadStatus === undefined ? (
+                <View className="items-center bg-white">
+                  {/* Loading indicator while uploading */}
+                </View>
+              ) : (
+                <View className="items-center">
+                  <Image className="h-10 w-10" source={infoIcon} />
+                </View>
+              )}
 
-          <View className="mx-4 mt-6">
-            <PrimaryButton
-              inactive={eDumpState.isUploadStatus === undefined}
-              onPress={() => {
-                if (visibleDisConnectBtn) {
-                  // Set disconnect button visible
-                }
-                router.back();
-              }}
-              text="OKAY"
-            />
-          </View>
+              <Text
+                className="text-center font-bold text-xl"
+                style={{
+                  marginTop: 16,
+                  marginBottom: 16,
+                  marginHorizontal: 16,
+                }}
+              >
+                {eDumpState.isUploadStatus === undefined
+                  ? "Finished Offline Analytic Successfully, \nPlease wait, uploading the file"
+                  : eDumpState.message}
+              </Text>
+
+              <PrimaryButton
+                inactive={eDumpState.isUploadStatus === undefined}
+                onPress={() => {
+                  router.back();
+                }}
+                text="OKAY"
+              />
+            </View>
+          )}
+
+          {showConfirmationModal && <FailureModal />}
         </View>
-      )}
-
-      {showConfirmationModal && <FailureModal />}
-    </View>
+      </View>
+    </>
   );
 }

@@ -59,7 +59,7 @@ const uploadSingleJob = async (
 
     if (response.data.message === "Success") {
       // Delete file after successful upload
-      const file = new File(job.filePath);
+      const file = new File(`file://${job.filePath}`);
       if (file.exists) {
         file.delete();
       }
@@ -222,14 +222,15 @@ export const useAuthStore = create<AuthState>()(
             return;
           }
 
-          const documentUri = Paths.document.uri;
-          const logBalPath = documentUri.replace("files", "BALLog");
-          const logAppPath = documentUri.replace("files", "BALAppLog");
-          const logAllDir = new Directory(Paths.document, "BALAllLog");
+          const documentPath = Paths.document.uri.replace("file://", "");
+          const logBalPath = documentPath.replace("files", "BALLog");
+          const logAppPath = documentPath.replace("files", "BALAppLog");
+          const logAllPath = `${documentPath}/BALAllLog`;
+          const logAllDir = new Directory(`file://${logAllPath}`);
 
           // Check if directories exist using new API
-          const balDir = new Directory(logBalPath);
-          const appDir = new Directory(logAppPath);
+          const balDir = new Directory(`file://${logBalPath}`);
+          const appDir = new Directory(`file://${logAppPath}`);
           const balExists = balDir.exists;
           const appExists = appDir.exists;
 
@@ -306,7 +307,7 @@ export const useAuthStore = create<AuthState>()(
 
           for (const job of jobs) {
             // Check if file exists using new API
-            const file = new File(job.filePath);
+            const file = new File(`file://${job.filePath}`);
             if (!file.exists) {
               skippedCount += 1;
               continue;

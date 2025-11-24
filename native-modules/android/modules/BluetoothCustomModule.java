@@ -2182,4 +2182,15 @@ public class BluetoothCustomModule extends ReactContextBaseJavaModule implements
 
     }
 
+    // Required methods for NativeEventEmitter
+    @ReactMethod
+    public void addListener(String eventName) {
+        // Keep: Required for RN built-in Event Emitter support
+    }
+
+    @ReactMethod
+    public void removeListeners(Integer count) {
+        // Keep: Required for RN built-in Event Emitter support
+    }
+
 }

@@ -1,6 +1,6 @@
 import { useFocusEffect } from "@react-navigation/native";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useRouter } from "expo-router";
+import { useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   BackHandler,
@@ -16,38 +16,27 @@ import { CustomHeader } from "@/components/ui/header";
 import { ShadowBox } from "@/components/ui/shadow-box";
 import { colors } from "@/constants/colors";
 import { handleJsonParse } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth-store";
 import type { ControllerData } from "@/store/bluetooth-store";
-import type { UserInfo } from "@/types";
+import { useDataTransferStore } from "@/store/data-transfer-store";
 
 const { BluetoothModule } = NativeModules;
 const eventEmitter = new NativeEventEmitter(BluetoothModule);
 
 export default function SendBinDataScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    controllersData?: string;
-    vin?: string;
-    userInfo?: string;
-  }>();
 
-  // Parse params
-  const controllersData: ControllerData[] = params.controllersData
-    ? JSON.parse(params.controllersData as string)
-    : [];
-  const vin = params.vin as string;
-  const userInfo: UserInfo = params.userInfo
-    ? JSON.parse(params.userInfo as string)
-    : {};
+  // Get data from stores
+  const controllersData = useDataTransferStore(
+    (state) => state.controllersData
+  );
+  const vin = useDataTransferStore((state) => state.vin);
+  const userInfo = useAuthStore((state) => state.userInfo);
 
-  const [binDataListener, setBinDataListener] = useState<{
-    remove: () => void;
-  } | null>(null);
-  const [resetConfigListener, setResetConfigListener] = useState<{
-    remove: () => void;
-  } | null>(null);
-  const [binTimeoutId, setBinTimeoutId] = useState<ReturnType<
-    typeof setTimeout
-  > | null>(null);
+  // Use refs to track listeners and timeout to avoid dependency issues in cleanup
+  const binDataListenerRef = useRef<{ remove: () => void } | null>(null);
+  const resetConfigListenerRef = useRef<{ remove: () => void } | null>(null);
+  const binTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const navigateToControllerScreen = useCallback(() => {
     router.replace("/(main)/controllers");
@@ -55,17 +44,17 @@ export default function SendBinDataScreen() {
 
   // Clean up BIN data listeners and navigate
   const cleanupAndNavigate = useCallback(() => {
-    if (binDataListener) {
-      binDataListener.remove();
-      setBinDataListener(null);
+    if (binDataListenerRef.current) {
+      binDataListenerRef.current.remove();
+      binDataListenerRef.current = null;
     }
-    if (binTimeoutId) {
-      clearTimeout(binTimeoutId);
-      setBinTimeoutId(null);
+    if (binTimeoutIdRef.current) {
+      clearTimeout(binTimeoutIdRef.current);
+      binTimeoutIdRef.current = null;
     }
     BluetoothModule.unsubscribeToReadBinData();
     navigateToControllerScreen();
-  }, [binDataListener, binTimeoutId, navigateToControllerScreen]);
+  }, [navigateToControllerScreen]);
 
   // Handle BIN data response
   const onBinDataResponse = useCallback(
@@ -79,9 +68,9 @@ export default function SendBinDataScreen() {
         console.log("BIN data response received (value):", response.value);
 
         // Clean up timeout as we received valid BIN data
-        if (binTimeoutId) {
-          clearTimeout(binTimeoutId);
-          setBinTimeoutId(null);
+        if (binTimeoutIdRef.current) {
+          clearTimeout(binTimeoutIdRef.current);
+          binTimeoutIdRef.current = null;
         }
 
         if (!response.value || response.value === "null") {
@@ -94,8 +83,8 @@ export default function SendBinDataScreen() {
           await uploadBINFromJSON(
             vin,
             response.value,
-            userInfo?.dealer_code,
-            userInfo?.serial_number,
+            userInfo?.dealer_code ?? "",
+            userInfo?.serial_number ?? "",
             {
               onSuccess: (data: unknown) => {
                 console.log("BIN data sent successfully to the api", data);
@@ -116,7 +105,7 @@ export default function SendBinDataScreen() {
         cleanupAndNavigate();
       }
     },
-    [binTimeoutId, cleanupAndNavigate, vin, userInfo]
+    [cleanupAndNavigate, vin, userInfo]
   );
 
   // Handle config reset response
@@ -136,7 +125,7 @@ export default function SendBinDataScreen() {
 
           // Clean up the reset config listener
           configListener.remove();
-          setResetConfigListener(null);
+          resetConfigListenerRef.current = null;
 
           // Now subscribe to readBinData events after successful reset
           BluetoothModule.subscribeToReadBinData(
@@ -151,7 +140,7 @@ export default function SendBinDataScreen() {
           );
 
           // Store the listener reference for cleanup
-          setBinDataListener(listener);
+          binDataListenerRef.current = listener;
 
           // Start reading BIN data
           console.log("Starting BIN data read for VCU and BMS");
@@ -159,15 +148,15 @@ export default function SendBinDataScreen() {
       } catch (error) {
         console.log("Error handling config reset response:", error);
         configListener.remove();
-        setResetConfigListener(null);
-        if (binTimeoutId) {
-          clearTimeout(binTimeoutId);
-          setBinTimeoutId(null);
+        resetConfigListenerRef.current = null;
+        if (binTimeoutIdRef.current) {
+          clearTimeout(binTimeoutIdRef.current);
+          binTimeoutIdRef.current = null;
         }
         navigateToControllerScreen();
       }
     },
-    [binTimeoutId, onBinDataResponse, navigateToControllerScreen]
+    [onBinDataResponse, navigateToControllerScreen]
   );
 
   // Send BIN data to SAP portal
@@ -179,11 +168,11 @@ export default function SendBinDataScreen() {
           "BIN operation timeout after 20 seconds, proceeding with navigation"
         );
         navigateToControllerScreen();
-        setBinTimeoutId(null);
+        binTimeoutIdRef.current = null;
       }, 20_000);
 
       // Store timeout ID for potential cleanup
-      setBinTimeoutId(timeoutId);
+      binTimeoutIdRef.current = timeoutId;
 
       // Request BIN data from ECU records (VCU and BMS)
       const vcuRecord = controllersData.find((record) =>
@@ -212,7 +201,7 @@ export default function SendBinDataScreen() {
         );
 
         // Store the listener reference for cleanup
-        setResetConfigListener(configListener);
+        resetConfigListenerRef.current = configListener;
       } else {
         // Upload the error to the SAP API
         console.log("VCU or BMS record not found");
@@ -220,8 +209,8 @@ export default function SendBinDataScreen() {
           await uploadBINFromJSON(
             vin,
             JSON.stringify({}),
-            userInfo?.dealer_code,
-            userInfo?.serial_number,
+            userInfo?.dealer_code ?? "",
+            userInfo?.serial_number ?? "",
             {
               onSuccess: (data: unknown) => {
                 console.log("Error status sent successfully to the api", data);
@@ -234,18 +223,18 @@ export default function SendBinDataScreen() {
         } catch (error) {
           console.log("Failed to upload error status to SAP:", error);
         }
-        if (binTimeoutId) {
-          clearTimeout(binTimeoutId);
-          setBinTimeoutId(null);
+        if (binTimeoutIdRef.current) {
+          clearTimeout(binTimeoutIdRef.current);
+          binTimeoutIdRef.current = null;
         }
         navigateToControllerScreen();
         throw new Error("Required ECU records not found");
       }
     } catch (error) {
       console.log("Error initiating BIN data read:", error);
-      if (binTimeoutId) {
-        clearTimeout(binTimeoutId);
-        setBinTimeoutId(null);
+      if (binTimeoutIdRef.current) {
+        clearTimeout(binTimeoutIdRef.current);
+        binTimeoutIdRef.current = null;
       }
       navigateToControllerScreen();
     }
@@ -253,7 +242,6 @@ export default function SendBinDataScreen() {
     controllersData,
     vin,
     userInfo,
-    binTimeoutId,
     handleConfigResetResponse,
     navigateToControllerScreen,
   ]);
@@ -273,15 +261,15 @@ export default function SendBinDataScreen() {
       return () => {
         backHandler.remove();
 
-        // Clean up all listeners
-        if (binDataListener) {
-          binDataListener.remove();
+        // Clean up all listeners using refs
+        if (binDataListenerRef.current) {
+          binDataListenerRef.current.remove();
         }
-        if (resetConfigListener) {
-          resetConfigListener.remove();
+        if (resetConfigListenerRef.current) {
+          resetConfigListenerRef.current.remove();
         }
-        if (binTimeoutId) {
-          clearTimeout(binTimeoutId);
+        if (binTimeoutIdRef.current) {
+          clearTimeout(binTimeoutIdRef.current);
         }
 
         // Unsubscribe from BIN data
@@ -291,7 +279,8 @@ export default function SendBinDataScreen() {
           console.log("Error unsubscribing from BIN data:", error);
         }
       };
-    }, [binDataListener, resetConfigListener, binTimeoutId, sendBINToSAP])
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sendBINToSAP])
   );
 
   return (
@@ -304,7 +293,11 @@ export default function SendBinDataScreen() {
       <View className="flex-1 bg-light-white">
         <ShadowBox className="mx-[12.5%] my-[55.5%] flex-1 items-center justify-center rounded-[30px] bg-white">
           <View className="aspect-square w-[33.33%] items-center justify-center rounded-full border-2 border-[#006ad0]">
-            <Image className="aspect-square w-[16.66%]" source={file} />
+            <Image
+              className="h-[50%] w-[50%]"
+              resizeMode="contain"
+              source={file}
+            />
           </View>
 
           <Text className="mx-[10%] p-4.5 text-center font-helvetica-bold text-[#5d5d5d] text-lg leading-[30px]">

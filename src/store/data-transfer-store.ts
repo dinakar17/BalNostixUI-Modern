@@ -137,8 +137,11 @@ export const useDataTransferStore = create<DataTransferState>()((set) => ({
 
   // Update device connection status
   updateDevice: () => {
+    console.log(
+      "[DataTransferStore] updateDevice called - setting isDeviceConnected to true"
+    );
     set({ isDeviceConnected: true });
-    console.log("Update Device Called");
+    console.log("[DataTransferStore] updateDevice completed");
   },
 
   // Update Bluetooth connection

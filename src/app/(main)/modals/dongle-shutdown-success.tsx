@@ -40,20 +40,20 @@ export default function DongleShutdownSuccessScreen() {
       <StatusBar style="dark" />
       <CustomHeader title="DISCONNECTED" />
 
-      <View className="flex-1 items-center justify-center bg-primaryBg px-5">
-        <ShadowBox className="items-center justify-center rounded-2xl px-6 py-8">
+      <View className="flex-1 bg-primaryBg px-5 py-6">
+        <ShadowBox className="items-center rounded-2xl px-6 py-6">
           <View
-            className="mt-6 h-28 w-28 items-center justify-center rounded-full border"
+            className="h-24 w-24 items-center justify-center rounded-full border"
             style={{
               backgroundColor: colors.successGreen,
               borderColor: "#48c427",
             }}
           >
-            <FontAwesome5 color="white" name="check" size={60} />
+            <FontAwesome5 color="white" name="check" size={50} />
           </View>
 
-          <View className="mt-6 items-center">
-            <Text className="mb-4 text-center font-primaryBold text-textPrimary text-xl">
+          <View className="mt-4 items-center">
+            <Text className="mb-3 text-center font-primaryBold text-lg text-textPrimary">
               Dongle Shutdown Successful
             </Text>
 
@@ -62,13 +62,14 @@ export default function DongleShutdownSuccessScreen() {
               data={instructions}
               keyExtractor={(_item, index) => index.toString()}
               renderItem={({ item }) => (
-                <View className="mb-3 flex-row">
-                  <Text className="font-primaryRegular text-base text-textPrimary">
+                <View className="mb-2 flex-row">
+                  <Text className="font-primaryRegular text-sm text-textPrimary">
                     {"\u2022 "}
                     {item}
                   </Text>
                 </View>
               )}
+              scrollEnabled={true}
             />
 
             <View className="mt-4 w-full">

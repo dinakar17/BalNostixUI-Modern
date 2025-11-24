@@ -315,7 +315,7 @@ export default function ControllerOperationsScreen() {
           router.back();
         }}
         leftButtonType="back"
-        renderLeftButton={true}
+        renderLeftButton={false}
         renderRightButton={isDonglePhase3State}
         rightButtonFunction={updateDongleToDisconnected}
         rightButtonType="settings"

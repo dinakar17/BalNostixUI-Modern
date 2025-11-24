@@ -6,9 +6,16 @@ type TilesProps = {
   data?: TileItem[];
   width?: boolean;
   height?: boolean;
+  overlayText?: boolean; // New prop for text overlay on image
 };
 
-export function Tiles({ gap = 0, data = [], width, height }: TilesProps) {
+export function Tiles({
+  gap = 0,
+  data = [],
+  width,
+  height,
+  overlayText = false,
+}: TilesProps) {
   return (
     <View className="flex-row flex-wrap">
       {data.map((item, index) => (
@@ -18,6 +25,7 @@ export function Tiles({ gap = 0, data = [], width, height }: TilesProps) {
           index={index}
           item={item}
           key={item.id}
+          overlayText={overlayText}
           width={width}
         />
       ))}

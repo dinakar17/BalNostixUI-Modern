@@ -244,6 +244,7 @@ const withNativeModuleDependencies: ConfigPlugin = (config) => {
       const dependencies = [
         'implementation fileTree(dir: "libs", include: ["*.jar", "*.aar"])',
         'implementation "androidx.lifecycle:lifecycle-livedata-ktx:2.5.1"',
+        'implementation "com.google.code.gson:gson:2.10.1"',
       ];
 
       console.log("📝 Checking native module dependencies...");

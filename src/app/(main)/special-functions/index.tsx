@@ -55,8 +55,8 @@ export default function SpecialFunctionsScreen() {
         title="Special Function"
       />
 
-      <View className="flex-1 px-5 pt-5">
-        <Tiles data={tilesData} />
+      <View className="my-10">
+        <Tiles data={tilesData} gap={32} height width />
       </View>
     </View>
   );

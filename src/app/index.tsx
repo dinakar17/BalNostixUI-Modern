@@ -165,9 +165,15 @@ export default function RootIndex() {
   const tempRef = useRef(false);
 
   const checkPermissions = useCallback(async (): Promise<boolean> => {
+    console.log("=== PERMISSION CHECK STARTED ===");
     const permissionResult = await requestAllPermissions();
+    console.log(
+      "Permission result:",
+      JSON.stringify(permissionResult, null, 2)
+    );
 
     if (!permissionResult.granted) {
+      console.log("Permissions denied:", permissionResult.deniedPermissions);
       setIsDenied(true);
       setLoading(false);
       setErrorMessage(
@@ -176,16 +182,23 @@ export default function RootIndex() {
       tempRef.current = true;
       return false;
     }
+    console.log("All permissions granted");
     return true;
   }, []);
 
   const handleSuccessfulVerification =
     useCallback(async (): Promise<boolean> => {
+      console.log("=== BLUETOOTH INITIALIZATION STARTED ===");
+      console.log("Calling BluetoothModule.initApplication()...");
       const initApplicationRes = await BluetoothModule.initApplication();
+      console.log("initApplication result:", initApplicationRes);
+
       if (!initApplicationRes) {
+        console.log("Bluetooth not enabled, showing overlay");
         setBluetoothOverlay(true);
         return false;
       }
+      console.log("Bluetooth initialized successfully");
       return true;
     }, []);
 
@@ -203,12 +216,18 @@ export default function RootIndex() {
   );
 
   const handleVerificationError = useCallback((error: unknown) => {
+    console.log("=== VERIFICATION ERROR HANDLER ===");
     const errorStr = String(error);
+    console.log("Error string:", errorStr);
+
     if (errorStr.includes("timeout of 120000ms exceeded")) {
+      console.log("Timeout error detected");
       setErrorMessage("Timeout, please check internet connection");
     } else if (errorStr.includes("Network Error")) {
+      console.log("Network error detected");
       setErrorMessage("Please check internet connection");
     } else {
+      console.log("Generic verification error");
       setErrorMessage("Failed to verify app version");
     }
     setLoading(false);
@@ -216,35 +235,52 @@ export default function RootIndex() {
 
   const verifyAppVersion = useCallback(async (): Promise<boolean> => {
     try {
+      console.log("=== APP VERSION VERIFICATION STARTED ===");
       const { userInfo: storedUserInfo } = useAuthStore.getState();
       const serial_number = storedUserInfo?.serial_number;
+      console.log("Serial number:", serial_number || "0");
+      console.log("App version:", ENV.APP_VERSION);
 
+      console.log("Calling verifyVersion API...");
       const response = await verifyVersion({
         serial_number: serial_number || "0",
         appversion: ENV.APP_VERSION,
       });
+      console.log("API Response:", JSON.stringify(response, null, 2));
 
       if (response.message === "Success") {
+        console.log(
+          "Version verification successful, initializing Bluetooth..."
+        );
         return await handleSuccessfulVerification();
       }
       if (response.error === -4) {
+        console.log("App version mismatch error");
         setErrorMessage("App version did not match");
         setAppVersionModal(true);
         setLoading(false);
         return false;
       }
       if (response.error === -2) {
+        console.log("Device not found error");
         return await handleDeviceNotFound(serial_number);
       }
       if (response?.response === "Permission denied") {
+        console.log("Permission denied error");
         setErrorMessage("Permission denied");
         setLoading(false);
         return false;
       }
+      console.log(
+        "Unknown verification response:",
+        response.message || "Verification failed"
+      );
       setErrorMessage(response.message || "Verification failed");
       setLoading(false);
       return false;
     } catch (error: unknown) {
+      console.error("=== APP VERSION VERIFICATION ERROR ===");
+      console.error("Error:", error);
       handleVerificationError(error);
       return false;
     }
@@ -255,65 +291,101 @@ export default function RootIndex() {
     handleVerificationError,
   ]);
 
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex initialization logic required
   const initializeApp = useCallback(async () => {
     try {
+      console.log("=== INITIALIZATION STARTED ===");
+      console.log("Environment:", ENV.ENV_NAME);
+      console.log("App Version:", ENV.APP_VERSION);
+
       // Initialize native modules
+      console.log("Initializing BluetoothModule...");
       BluetoothModule.initIntentFilters();
+      console.log("BluetoothModule initialized");
+
+      console.log("Initializing USBModule...");
       USBModule.initUSBCom();
+      console.log("USBModule initialized");
 
       // Wait for Zustand store to rehydrate if needed
       if (isStoreLoading) {
         console.log("Waiting for store to rehydrate...");
         // Wait a bit for rehydration to complete
         await delay(100);
+        console.log("Store rehydration complete");
       }
 
       // Check token validity (validates persisted session)
+      console.log("Checking token validity...");
       checkTokenValidity();
+      console.log("Token validity checked");
 
       // Check permissions
+      console.log("Checking permissions...");
       const hasPermissions = await checkPermissions();
+      console.log("Permissions result:", hasPermissions);
       if (!hasPermissions) {
+        console.log("Permissions denied, stopping initialization");
         return;
       }
 
       // Verify app version
+      console.log("Verifying app version...");
       const isVersionValid = await verifyAppVersion();
+      console.log("Version verification result:", isVersionValid);
       if (!isVersionValid) {
+        console.log("Version verification failed, stopping initialization");
         return;
       }
 
       // App version verification successful
+      console.log("Setting success state...");
       setSuccess(true);
 
       // Mark app as version verified
+      console.log("Marking app as version verified...");
       appVersionVerification();
 
       // Get fresh login status after token validation
       const { isSignedIn: currentSignedInStatus } = useAuthStore.getState();
+      console.log("User signed in status:", currentSignedInStatus);
 
       // Navigate immediately based on login status
       if (currentSignedInStatus) {
+        console.log("Navigating to main screen...");
         router.replace("/(main)");
       } else {
+        console.log("Navigating to auth screen...");
         router.replace("/(auth)");
       }
+
+      console.log("=== INITIALIZATION COMPLETED ===");
     } catch (error: unknown) {
+      console.error("=== INITIALIZATION ERROR ===");
+      console.error("Error details:", error);
+      console.error("Error type:", typeof error);
+      console.error("Error string:", String(error));
+
       setLoading(false);
 
       if (isAuthError(error)) {
+        console.log("Auth error detected, retry count:", tokenCounts.current);
         if (tokenCounts.current < 3) {
           tokenCounts.current += 1;
+          console.log("Retrying initialization...");
           setTimeout(() => {
             initializeApp().catch(() => {
               // Error already handled in initializeApp
             });
           }, 1000);
         } else {
+          console.error("Max retry attempts reached");
           setErrorMessage("Authentication failed. Please restart the app.");
         }
       } else {
-        setErrorMessage(getErrorMessage(error));
+        const errorMsg = getErrorMessage(error);
+        console.error("Non-auth error:", errorMsg);
+        setErrorMessage(errorMsg);
       }
     }
   }, [

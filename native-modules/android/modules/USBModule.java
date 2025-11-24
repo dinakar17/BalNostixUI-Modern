@@ -240,6 +240,17 @@ public class USBModule extends ReactContextBaseJavaModule implements LifecycleEv
          reactContext.unregisterReceiver(USBDeviceListerner);
     }
 
+    // Required methods for NativeEventEmitter
+    @ReactMethod
+    public void addListener(String eventName) {
+        // Keep: Required for RN built-in Event Emitter support
+    }
+
+    @ReactMethod
+    public void removeListeners(Integer count) {
+        // Keep: Required for RN built-in Event Emitter support
+    }
+
     @NonNull
     @Override
     public String getName() {

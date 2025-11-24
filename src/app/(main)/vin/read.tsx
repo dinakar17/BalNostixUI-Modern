@@ -27,6 +27,9 @@ import type { ECURecord } from "@/types/bluetooth.types";
 
 const { BluetoothModule, TestModule } = NativeModules;
 
+// Create event emitter once, outside component
+const bluetoothEventEmitter = new NativeEventEmitter(BluetoothModule);
+
 const URL_VALIDATION_PATTERN =
   /^(?:\w+:)?\/\/([^\s.]+\.\S{2}|localhost[:?\d]*)\S*$/;
 
@@ -67,7 +70,6 @@ export default function ReadVINScreen() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const pinInputRef = useRef<TextInput>(null);
-  const eventEmitter = new NativeEventEmitter(BluetoothModule);
 
   const outputDir = new Directory(Paths.document, "balDownload");
   const outputJsonFile = new File(
@@ -110,22 +112,31 @@ export default function ReadVINScreen() {
 
   // Read VIN from scanner
   const readVinFromScanner = async () => {
-    setIsLoadingBlueButton(true);
-    BluetoothModule.subscribeToReadVin();
-    isReadVinInProcess = true;
-    let totalTime = 0;
+    try {
+      setIsLoadingBlueButton(true);
+      BluetoothModule.subscribeToReadVin();
+      isReadVinInProcess = true;
+      let totalTime = 0;
 
-    while (isReadVinInProcess) {
-      await sleep(10);
-      if (totalTime > 4000) {
-        toastError("Failed to read VIN");
-        isReadVinInProcess = false;
-        setIsReadVinFailed(true);
-        setIsLoadingBlueButton(false);
-        setScanVinFailed(true);
-      } else {
-        totalTime += 10;
+      while (isReadVinInProcess) {
+        await sleep(10);
+        if (totalTime > 4000) {
+          toastError("Failed to read VIN");
+          isReadVinInProcess = false;
+          setIsReadVinFailed(true);
+          setIsLoadingBlueButton(false);
+          setScanVinFailed(true);
+        } else {
+          totalTime += 10;
+        }
       }
+    } catch (error) {
+      console.log("Error reading VIN from scanner:", error);
+      isReadVinInProcess = false;
+      setIsReadVinFailed(true);
+      setIsLoadingBlueButton(false);
+      setScanVinFailed(true);
+      toastError("Failed to read VIN");
     }
   };
 
@@ -286,7 +297,8 @@ export default function ReadVINScreen() {
         }
 
         // Copy files to location
-        const res = await TestModule.copyFilesToLocation(outputDir.uri);
+        const outputPath = outputDir.uri.replace("file://", "");
+        const res = await TestModule.copyFilesToLocation(outputPath);
 
         if (outputDir.exists) {
           outputDir.delete();
@@ -297,7 +309,7 @@ export default function ReadVINScreen() {
 
           // Navigate to SendBINDataScreen to handle BIN data sending
           setIsDownloading(false);
-          router.push("/(main)/vin/send-bin-data");
+          router.replace("/(main)/vin/send-bin-data");
         } else {
           toastError("Download failed please try again");
           setIsDownloading(false);
@@ -379,9 +391,10 @@ export default function ReadVINScreen() {
     Keyboard.dismiss();
   };
 
-  // Handle VIN found from scanner
+  // Handle VIN found from Vehicle
   const onVinFound = useCallback(
     (data: { name: string; value: string | null }) => {
+      console.log(`[ReadVINScreen] onVinFound: ${data.name} = ${data.value}`);
       if (
         data.name === "readVin" &&
         data.value != null &&
@@ -416,13 +429,16 @@ export default function ReadVINScreen() {
   // Setup read VIN listener
   useEffect(() => {
     if (!isDownloading) {
-      const readVinListener = eventEmitter.addListener("readVin", onVinFound);
+      const readVinListener = bluetoothEventEmitter.addListener(
+        "readVin",
+        onVinFound
+      );
       return () => {
         readVinListener.remove();
         BluetoothModule.unsubscribeToReadVin();
       };
     }
-  }, [isDownloading, eventEmitter, onVinFound]);
+  }, [isDownloading, onVinFound]);
 
   // Handle dongle stuck in boot mode
   useEffect(() => {

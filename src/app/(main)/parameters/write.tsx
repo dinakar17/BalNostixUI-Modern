@@ -1,5 +1,4 @@
 import Icon from "@expo/vector-icons/Feather";
-import { Image } from "expo-image";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -16,7 +15,6 @@ import {
   View,
 } from "react-native";
 import { FMSApi } from "@/api/fms";
-import { scanAgain } from "@/assets/images";
 import { PrimaryButton, WhiteButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
 import { OverlayLoading } from "@/components/ui/overlay";
@@ -404,22 +402,13 @@ export default function WriteParametersScreen() {
   };
 
   const ScanAgainButton = () => (
-    <TouchableOpacity
-      className="h-12 items-center justify-center rounded-lg bg-blue-600"
+    <PrimaryButton
       onPress={() => {
         setLoading(true);
         getWriteParameter();
       }}
-    >
-      <View className="flex-row items-center justify-center">
-        <Image
-          contentFit="contain"
-          source={scanAgain}
-          style={{ height: 35, width: 35, marginRight: 8, tintColor: "white" }}
-        />
-        <Text className="text-lg text-white">Scan Again</Text>
-      </View>
-    </TouchableOpacity>
+      text="Scan Again"
+    />
   );
 
   return (

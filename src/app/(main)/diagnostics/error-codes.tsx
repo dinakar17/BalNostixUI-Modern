@@ -220,20 +220,20 @@ export default function ErrorCodesScreen() {
     }, [loading])
   );
 
-  // Remove duplicates
-  const uniqueList = (list: ErrorCodeWithImage[]) => {
-    if (list.length <= 1) {
-      return list;
-    }
-    const seen = new Map();
-    return list.filter((item) => {
-      if (seen.has(item.code)) {
-        return false;
-      }
-      seen.set(item.code, true);
-      return true;
-    });
-  };
+  // // Remove duplicates
+  // const uniqueList = (list: ErrorCodeWithImage[]) => {
+  //   if (list.length <= 1) {
+  //     return list;
+  //   }
+  //   const seen = new Map();
+  //   return list.filter((item) => {
+  //     if (seen.has(item.code)) {
+  //       return false;
+  //     }
+  //     seen.set(item.code, true);
+  //     return true;
+  //   });
+  // };
 
   // Error detail modal
   const ErrorDetailModal = () => {
@@ -344,8 +344,8 @@ export default function ErrorCodesScreen() {
 
       {errorCodes.length !== 0 ? (
         <FlatList
-          data={uniqueList(errorCodes)}
-          keyExtractor={(item) => item.code}
+          data={errorCodes}
+          keyExtractor={(item, index) => `${item.code}-${index}`}
           renderItem={({ item }) => (
             <Pressable
               className="my-2 flex-row border-gray-300 border-b pb-4"

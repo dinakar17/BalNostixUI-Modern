@@ -442,7 +442,7 @@ export default function ControllersScreen() {
       <CustomHeader
         leftButtonFunction={handleBackButton}
         leftButtonType="back"
-        renderLeftButton
+        renderLeftButton={false}
         renderRightButton={isDonglePhase3State}
         rightButtonFunction={updateDongleToDisconnected}
         rightButtonType="settings"
@@ -451,7 +451,7 @@ export default function ControllersScreen() {
 
       <ScrollView className="flex-1">
         <View className="mt-8 mb-8">
-          <Tiles data={controllersList} gap={32} />
+          <Tiles data={controllersList} gap={32} overlayText />
         </View>
       </ScrollView>
 
