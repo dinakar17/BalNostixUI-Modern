@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import { NativeEventEmitter, NativeModules, View } from "react-native";
+import { useUploadEeDumpWithEcu } from "@/api/data-transfer";
 import { sapRetryUtils } from "@/api/sap";
 import { DongleAuthModal } from "@/components/DongleAuthModal";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,7 @@ export default function SelectDataTransferModeScreen() {
   const [overlayLoading, setOverlayLoading] = useState(false);
   const [isLoadingUSB, setIsLoadingUSB] = useState(false);
 
-  const { dataTransferModeSelection, uploadEeDumpWithEcu } = useAuthStore();
+  const { dataTransferModeSelection } = useAuthStore();
   const {
     isDeviceConnected,
     dongleSerialNo,
@@ -34,6 +35,8 @@ export default function SelectDataTransferModeScreen() {
     updateIsGettingDongleDeviceInfo,
     updateDongleSerialNo,
   } = useDataTransferStore();
+
+  const { trigger: uploadEeDump } = useUploadEeDumpWithEcu();
 
   // Retry failed SAP requests in background
   const retryFailedSAPRequests = () => {
@@ -188,7 +191,9 @@ export default function SelectDataTransferModeScreen() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: Run only once on mount
   useEffect(() => {
-    uploadEeDumpWithEcu();
+    uploadEeDump({}).catch((error) => {
+      console.error("[DataTransferMode] EE dump upload failed:", error);
+    });
     retryFailedSAPRequests();
   }, []);
 

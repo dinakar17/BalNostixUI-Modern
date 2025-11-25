@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Bar as ProgressBar } from "react-native-progress";
+import { useUploadAppLogs } from "@/api/data-transfer";
 import { uploadBINFromJSON } from "@/api/sap";
 import { infoIcon } from "@/assets/images/index";
 import { PrimaryButton, WhiteButton } from "@/components/ui/button";
@@ -40,8 +41,9 @@ type FlashingState = {
 };
 
 export default function WriteBinScreen() {
-  const { dataTransferMode, userInfo, uploadAppLogs } = useAuthStore();
+  const { dataTransferMode, userInfo } = useAuthStore();
   const { selectedEcu } = useDataTransferStore();
+  const { trigger: uploadAppLogs } = useUploadAppLogs();
 
   const [isVisible, setIsVisible] = useState(false);
   const [flashingState, setFlashingState] = useState<FlashingState | null>(
@@ -87,11 +89,11 @@ export default function WriteBinScreen() {
       //   dataTransferMode === "Bluetooth" ? BluetoothModule : USBModule;
       BluetoothModule.saveAppLog(selectedEcu.index);
 
-      await uploadAppLogs(
-        userInfo.serial_number,
-        selectedEcu.vinNumber,
-        selectedEcu.oldHexFileName
-      );
+      await uploadAppLogs({
+        serialNumber: userInfo.serial_number,
+        vinNumber: selectedEcu.vinNumber,
+        hexFile: selectedEcu.oldHexFileName,
+      });
     } catch (error) {
       console.log("Upload logs error:", error);
     }

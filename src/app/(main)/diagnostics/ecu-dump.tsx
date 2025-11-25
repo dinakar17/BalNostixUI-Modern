@@ -17,6 +17,7 @@ import { useMMKVObject } from "react-native-mmkv";
 import { Bar as ProgressBar } from "react-native-progress";
 import { zip } from "react-native-zip-archive";
 
+import { useUploadEeDumpWithEcu } from "@/api/data-transfer";
 import { infoIcon } from "@/assets/images/index";
 import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
@@ -83,6 +84,9 @@ export default function ECUDumpScreen() {
   // MMKV storage
   const [jsonDataOAC, setJsonDataOAC] = useMMKVObject<OACData>("jsonDataOAC");
   const [eeDumpJobs, setEeDumpJobs] = useMMKVObject<EeDumpJob[]>("eeDumpJobs");
+
+  // Upload hook
+  const { trigger: uploadEeDump } = useUploadEeDumpWithEcu();
 
   // State
   const [eDumpState, setEDumpState] = useState<EDumpState>({
@@ -197,6 +201,12 @@ export default function ECUDumpScreen() {
       console.log(
         `[EDS:CreateJob] Job queued - VIN: ${currentVIN}, ECU: ${selectedEcu?.ecuName}`
       );
+
+      // Trigger upload immediately after adding job (matches original ECUDumpScreen.js)
+      await uploadEeDump({}).catch((error) => {
+        console.error("[EDS:CreateJob] Upload failed:", error);
+      });
+
       return true;
     } catch (error) {
       console.log("Create job error:", error);
@@ -213,8 +223,7 @@ export default function ECUDumpScreen() {
       }
       BluetoothModule.unsubscribeToDump();
       BluetoothModule.stopAllTimersFromReact();
-      // biome-ignore lint/suspicious/noExplicitAny: Native module method not fully typed
-      (BluetoothModule as any).saveAppLog(selectedEcu?.index || 0);
+      BluetoothModule.saveAppLog(selectedEcu?.index || 0);
 
       // Check if EEDUMP folder exists and has files
       const documentPath = Paths.document.uri.replace("file://", "");
@@ -239,26 +248,34 @@ export default function ECUDumpScreen() {
 
       if (filesExist) {
         await createJob();
-      }
 
-      // Check remaining jobs after upload attempt
-      const failJobMap = eeDumpJobs;
-      if (failJobMap) {
-        if (failJobMap.length === 0) {
-          setEDumpState((prev) => ({
-            ...prev,
-            isUploadStatus: true,
-            message: "All files have been successfully uploaded to the server.",
-          }));
+        // Check remaining jobs after upload attempt (re-fetch from MMKV)
+        const failJobMap = eeDumpJobs;
+        if (failJobMap) {
+          if (failJobMap.length === 0) {
+            setEDumpState((prev) => ({
+              ...prev,
+              isUploadStatus: true,
+              message:
+                "All files have been successfully uploaded to the server.",
+            }));
+          } else {
+            console.log(
+              `[EDS:Upload] ${failJobMap.length} job(s) remaining in queue`
+            );
+            setEDumpState((prev) => ({
+              ...prev,
+              isUploadStatus: false,
+              message:
+                "Failed to Upload Offline Analystics Data, \nPlease check your Internet Connectivity.\n\nTry again later",
+            }));
+          }
         } else {
-          console.log(
-            `[EDS:Upload] ${failJobMap.length} job(s) remaining in queue`
-          );
           setEDumpState((prev) => ({
             ...prev,
             isUploadStatus: false,
             message:
-              "Failed to Upload Offline Analystics Data, \nPlease check your Internet Connectivity.\n\nTry again later",
+              "No File to Upload. Please try collecting offline analytics data.",
           }));
         }
       } else {
@@ -430,8 +447,7 @@ export default function ECUDumpScreen() {
       OfflineAnalysticCollectedSaveDetails(currentVIN || "", OACStatus.START);
 
       // Subscribe to dump with just the index parameter like original
-      // biome-ignore lint/suspicious/noExplicitAny: Native module method not fully typed
-      (BluetoothModule as any).subscribeToDump(selectedEcu?.index || 0);
+      BluetoothModule.subscribeToDump(selectedEcu?.index || 0);
 
       const eventEmitter = new NativeEventEmitter(BluetoothModule);
       subscriptionRef.current = eventEmitter.addListener("eeDump", onResponse);

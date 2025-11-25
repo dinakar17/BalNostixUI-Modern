@@ -1,11 +1,41 @@
 import type { ExpoConfig } from "expo/config";
 import "tsx/cjs";
 
+type Environment = "development" | "uat" | "production";
+
+const APP_VARIANT =
+  (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) || "development";
+
+const ENV_CONFIG = {
+  development: {
+    name: "DEV BALNOSTIX+",
+    bundleIdentifier: "com.nostix.balnostix.dev",
+    androidPackage: "com.nostix",
+    scheme: "balnostix-dev",
+  },
+  uat: {
+    name: "UAT BALNOSTIX+",
+    bundleIdentifier: "com.nostix.balnostix.uat",
+    androidPackage: "com.nostix.uat",
+    scheme: "balnostix-uat",
+  },
+  production: {
+    name: "BALNOSTIX+",
+    bundleIdentifier: "com.nostix.balnostix.app",
+    androidPackage: "com.nostix.app",
+    scheme: "balnostix",
+  },
+} as const;
+
+const currentConfig = ENV_CONFIG[APP_VARIANT];
+
+console.log(`Using app config for variant: ${APP_VARIANT}`);
+
 const config: ExpoConfig = {
-  name: "BAL Nostix",
+  name: currentConfig.name,
   slug: "bal-nostix-ui",
   version: "1.0.0",
-  scheme: "balnostix",
+  scheme: currentConfig.scheme,
   platforms: ["ios", "android"],
   web: {
     bundler: "metro",
@@ -53,7 +83,7 @@ const config: ExpoConfig = {
   assetBundlePatterns: ["**/*"],
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.nostix.balnostix",
+    bundleIdentifier: currentConfig.bundleIdentifier,
     infoPlist: {
       NSBluetoothAlwaysUsageDescription:
         "This app requires Bluetooth to connect to vehicle diagnostic devices",
@@ -68,7 +98,7 @@ const config: ExpoConfig = {
       foregroundImage: "./src/assets/adaptive-icon.png",
       backgroundColor: "#ffffff",
     },
-    package: "com.nostix",
+    package: currentConfig.androidPackage,
     permissions: [
       // Bluetooth permissions (handled by react-native-ble-plx plugin, but kept for clarity)
       "BLUETOOTH",
