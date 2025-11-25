@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { backBtn, dongleOff } from "@/assets/images";
+import { ChangePinModal } from "@/components/ChangePinModal";
 import { ENV } from "@/config/env";
 import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
@@ -48,6 +49,7 @@ export function CustomHeader({
   );
 
   const [showMenu, setShowMenu] = useState(false);
+  const [showChangePinModal, setShowChangePinModal] = useState(false);
 
   const handleLogoutAction = () => {
     handleLogout();
@@ -55,7 +57,8 @@ export function CustomHeader({
   };
 
   const handleChangeTransactionPin = () => {
-    router.push("/(auth)/change-pin");
+    setShowMenu(false);
+    setShowChangePinModal(true);
   };
 
   const getDate = () => {
@@ -239,6 +242,10 @@ export function CustomHeader({
       </LinearGradient>
 
       <MenuOverlay />
+      <ChangePinModal
+        onClose={() => setShowChangePinModal(false)}
+        visible={showChangePinModal}
+      />
     </>
   );
 }

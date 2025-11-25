@@ -12,6 +12,7 @@
  */
 
 import { useFocusEffect, useNavigation } from "@react-navigation/native";
+import { captureException, captureMessage } from "@sentry/react-native";
 import dayjs from "dayjs";
 import { router } from "expo-router";
 import { useCallback, useRef, useState } from "react";
@@ -232,6 +233,24 @@ export default function ECUDumpScreen() {
 
     isCollectionActive = false;
 
+    // Log failure to Sentry
+    captureMessage("Offline analytics collection failed", {
+      level: "error",
+      tags: {
+        operation: "oa_collection_failure",
+        ecu_name: selectedEcu?.ecuName || "unknown",
+        status_code: statusCode,
+      },
+      extra: {
+        ecu_index: selectedEcu?.index,
+        vin_number: vin,
+        failure_message: message,
+        collection_duration_ms: collectionStartTimeRef.current
+          ? dayjs().valueOf() - collectionStartTimeRef.current.valueOf()
+          : null,
+      },
+    });
+
     // Save failure status
     saveCollectionStatus(statusCode);
 
@@ -310,6 +329,25 @@ export default function ECUDumpScreen() {
 
           isCollectionActive = false;
 
+          // Log successful collection to Sentry
+          captureMessage(
+            "Offline analytics collection completed successfully",
+            {
+              level: "info",
+              tags: {
+                operation: "oa_collection_success",
+                ecu_name: selectedEcu?.ecuName || "unknown",
+              },
+              extra: {
+                ecu_index: selectedEcu?.index,
+                vin_number: vin,
+                collection_duration_ms: collectionStartTimeRef.current
+                  ? dayjs().valueOf() - collectionStartTimeRef.current.valueOf()
+                  : null,
+              },
+            }
+          );
+
           setProgress({
             state: "COMPLETE",
             percent: 100,
@@ -354,6 +392,19 @@ export default function ECUDumpScreen() {
       }
     } catch (error) {
       console.error("[ECUDump] Response handler error:", error);
+
+      captureException(error, {
+        tags: {
+          operation: "oa_response_handler_error",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          vin_number: vin,
+          response_value: response.value,
+        },
+      });
+
       handleCollectionFailure(
         "There is an issue collecting data. Please toggle the ignition and try again.",
         OACollectionStatus.EXCEPTION
@@ -414,6 +465,23 @@ export default function ECUDumpScreen() {
             "Timeout occurred after 10 minutes or more.\nPlease check the BT dongle or toggle the ignition and try again.";
         }
 
+        // Log timeout to Sentry
+        captureMessage("Offline analytics collection timeout", {
+          level: "warning",
+          tags: {
+            operation: "oa_collection_timeout",
+            ecu_name: selectedEcu?.ecuName || "unknown",
+            timeout_type: statusCode,
+          },
+          extra: {
+            ecu_index: selectedEcu?.index,
+            vin_number: vin,
+            time_since_last_response_ms: timeSinceLastResponse,
+            total_elapsed_ms: totalElapsed,
+            ecu_timeout_ms: ecuTimeout,
+          },
+        });
+
         handleCollectionFailure(message, statusCode);
         BluetoothModule.saveAppLog(selectedEcu?.index || 0);
         break;
@@ -460,6 +528,18 @@ export default function ECUDumpScreen() {
       monitorTimeouts();
     } catch (error) {
       console.error("[ECUDump] Start collection error:", error);
+
+      captureException(error, {
+        tags: {
+          operation: "oa_start_collection_error",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          vin_number: vin,
+        },
+      });
+
       handleCollectionFailure(
         "Failed to start collection. Please try again.",
         OACollectionStatus.EXCEPTION

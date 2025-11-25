@@ -1,15 +1,11 @@
 import { Feather } from "@expo/vector-icons";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import {
-  Image,
-  ImageBackground,
-  KeyboardAvoidingView,
-  Platform,
+  Modal,
+  Pressable,
   ScrollView,
-  StatusBar,
   Text,
   TextInput,
   TouchableOpacity,
@@ -17,13 +13,10 @@ import {
 } from "react-native";
 import { z } from "zod";
 import { useGetOTP, useResetPin } from "@/api/auth";
-import { backgroundImg, bajaj_logo } from "@/assets/images";
 import { Button } from "@/components/ui/button";
-import { metrics } from "@/constants/metrics";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { useAuthStore } from "@/store/auth-store";
 
-// Zod validation schema
 const changePinSchema = z
   .object({
     dealerCode: z.string().min(1, "Dealer code is required"),
@@ -46,8 +39,12 @@ const changePinSchema = z
 
 type ChangePinForm = z.infer<typeof changePinSchema>;
 
-export default function ChangeTransactionPinScreen() {
-  const router = useRouter();
+type ChangePinModalProps = {
+  visible: boolean;
+  onClose: () => void;
+};
+
+export function ChangePinModal({ visible, onClose }: ChangePinModalProps) {
   const userInfo = useAuthStore((state) => state.userInfo);
   const { trigger: getOTP } = useGetOTP();
   const { trigger: resetPin, isMutating } = useResetPin();
@@ -62,6 +59,7 @@ export default function ChangeTransactionPinScreen() {
     handleSubmit,
     formState: { errors },
     watch,
+    reset,
   } = useForm<ChangePinForm>({
     resolver: zodResolver(changePinSchema),
     defaultValues: {
@@ -124,7 +122,7 @@ export default function ChangeTransactionPinScreen() {
 
     if (error.response?.status === 401) {
       toastError("Session expired. Please login again.");
-      router.replace("/");
+      onClose();
       return;
     }
 
@@ -155,11 +153,25 @@ export default function ChangeTransactionPinScreen() {
         toastError(response.message);
       } else {
         toastSuccess("Transaction PIN changed successfully");
-        router.back();
+        reset();
+        setTimer(0);
+        setOtpSent(false);
+        setPinVisible(false);
+        setConfirmPinVisible(false);
+        onClose();
       }
     } catch (error: unknown) {
       handleErrorResponse(error);
     }
+  };
+
+  const handleClose = () => {
+    reset();
+    setTimer(0);
+    setOtpSent(false);
+    setPinVisible(false);
+    setConfirmPinVisible(false);
+    onClose();
   };
 
   useEffect(() => {
@@ -172,97 +184,92 @@ export default function ChangeTransactionPinScreen() {
   }, [timer]);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={{ flex: 1 }}
-    >
-      <StatusBar barStyle="light-content" />
-      <ImageBackground className="flex-1" source={backgroundImg}>
-        <ScrollView
-          contentContainerClassName="flex-grow justify-end"
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={true}
+    <Modal animationType="fade" transparent visible={visible}>
+      <Pressable
+        className="flex-1 items-center justify-center bg-black/50"
+        onPress={handleClose}
+      >
+        <Pressable
+          className="w-[90%] max-w-md rounded-lg bg-white"
+          onPress={(e) => e.stopPropagation()}
         >
-          <View
-            className="items-center"
-            style={{
-              marginTop: metrics.height < 800 ? 30 : 30,
-            }}
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            <Image
-              source={bajaj_logo}
-              style={{
-                tintColor: "white",
-                width: metrics.width,
-                height: metrics.width / 3.5,
-                resizeMode: "contain",
-              }}
-            />
-          </View>
+            {/* Header */}
+            <View className="flex-row items-center justify-between border-gray-200 border-b p-4">
+              <Text className="font-bold text-gray-900 text-lg">
+                Change Transaction PIN
+              </Text>
+              <TouchableOpacity onPress={handleClose}>
+                <Feather color="#666" name="x" size={24} />
+              </TouchableOpacity>
+            </View>
 
-          <View className="flex-row items-center justify-center px-4">
-            <Image
-              source={require("../../assets/images/nostix-logo.png")}
-              style={{
-                width: metrics.width / 1.8,
-                height: metrics.width / 2.8,
-                resizeMode: "contain",
-              }}
-            />
-          </View>
+            {/* Content */}
+            <View className="p-4">
+              <Text className="mb-4 text-center text-gray-600 text-sm">
+                Change your transaction PIN to secure your transactions
+              </Text>
 
-          <View className="items-center">
-            <Text className="mt-6 mb-4 px-5 text-center text-sm text-white">
-              Change your transaction PIN to secure your transactions
-            </Text>
-          </View>
-
-          <View className="flex-1 flex-row items-end">
-            <View className="flex-1 rounded-t-[30px] bg-white pt-5">
               {/* Dealer Code */}
-              <View className="mt-4 px-4">
+              <View className="mb-4">
+                <Text className="mb-2 font-bold text-gray-700 text-sm">
+                  Dealer Code
+                </Text>
                 <Controller
                   control={control}
                   name="dealerCode"
                   render={({ field: { onChange, value } }) => (
                     <TextInput
-                      className="rounded border border-gray-200 p-2.5 font-bold text-black"
+                      className="rounded border border-gray-300 p-3 font-bold text-black"
                       onChangeText={(text) => {
                         onChange(text);
                         setOtpSent(false);
                       }}
-                      placeholder="Dealer Code"
+                      placeholder="Enter dealer code"
                       placeholderTextColor="gray"
                       value={value}
                     />
                   )}
                 />
                 {errors.dealerCode && (
-                  <Text className="mt-1 text-[11px] text-red-500">
+                  <Text className="mt-1 text-red-500 text-xs">
                     {errors.dealerCode.message}
                   </Text>
                 )}
               </View>
 
               {/* OTP with Send Button */}
-              <View className="mt-4 px-4">
-                <View className="flex-row items-center space-x-2">
-                  <Controller
-                    control={control}
-                    name="otp"
-                    render={({ field: { onChange, value } }) => (
-                      <TextInput
-                        className="flex-1 rounded border border-gray-200 p-2.5 font-bold text-black"
-                        keyboardType="number-pad"
-                        maxLength={4}
-                        onChangeText={onChange}
-                        placeholder="Enter OTP"
-                        placeholderTextColor="gray"
-                        secureTextEntry
-                        value={value}
-                      />
+              <View className="mb-4">
+                <Text className="mb-2 font-bold text-gray-700 text-sm">
+                  OTP
+                </Text>
+                <View className="flex-row items-start space-x-2">
+                  <View className="flex-1">
+                    <Controller
+                      control={control}
+                      name="otp"
+                      render={({ field: { onChange, value } }) => (
+                        <TextInput
+                          className="rounded border border-gray-300 p-3 font-bold text-black"
+                          keyboardType="number-pad"
+                          maxLength={4}
+                          onChangeText={onChange}
+                          placeholder="Enter OTP"
+                          placeholderTextColor="gray"
+                          secureTextEntry
+                          value={value}
+                        />
+                      )}
+                    />
+                    {errors.otp && (
+                      <Text className="mt-1 text-red-500 text-xs">
+                        {errors.otp.message}
+                      </Text>
                     )}
-                  />
+                  </View>
                   <Button
                     disabled={timer > 0}
                     inactive={timer > 0}
@@ -272,26 +279,24 @@ export default function ChangeTransactionPinScreen() {
                     variant="primary"
                   />
                 </View>
-                {errors.otp && (
-                  <Text className="mt-1 text-[11px] text-red-500">
-                    {errors.otp.message}
-                  </Text>
-                )}
               </View>
 
               {/* New PIN */}
-              <View className="mt-4 px-4">
+              <View className="mb-4">
+                <Text className="mb-2 font-bold text-gray-700 text-sm">
+                  New PIN
+                </Text>
                 <View className="relative">
                   <Controller
                     control={control}
                     name="pin"
                     render={({ field: { onChange, value } }) => (
                       <TextInput
-                        className="rounded border border-gray-200 p-2.5 pr-10 font-bold text-black"
+                        className="rounded border border-gray-300 p-3 pr-12 font-bold text-black"
                         keyboardType="number-pad"
                         maxLength={6}
                         onChangeText={onChange}
-                        placeholder="New PIN"
+                        placeholder="Enter 6-digit PIN"
                         placeholderTextColor="gray"
                         secureTextEntry={!pinVisible}
                         value={value}
@@ -299,7 +304,7 @@ export default function ChangeTransactionPinScreen() {
                     )}
                   />
                   <TouchableOpacity
-                    className="absolute top-3 right-3"
+                    className="absolute top-3.5 right-3"
                     onPress={() => setPinVisible(!pinVisible)}
                   >
                     <Feather
@@ -310,25 +315,28 @@ export default function ChangeTransactionPinScreen() {
                   </TouchableOpacity>
                 </View>
                 {errors.pin && (
-                  <Text className="mt-1 text-[11px] text-red-500">
+                  <Text className="mt-1 text-red-500 text-xs">
                     {errors.pin.message}
                   </Text>
                 )}
               </View>
 
               {/* Confirm New PIN */}
-              <View className="mt-4 px-4">
+              <View className="mb-6">
+                <Text className="mb-2 font-bold text-gray-700 text-sm">
+                  Confirm New PIN
+                </Text>
                 <View className="relative">
                   <Controller
                     control={control}
                     name="confirmPin"
                     render={({ field: { onChange, value } }) => (
                       <TextInput
-                        className="rounded border border-gray-200 p-2.5 pr-10 font-bold text-black"
+                        className="rounded border border-gray-300 p-3 pr-12 font-bold text-black"
                         keyboardType="number-pad"
                         maxLength={6}
                         onChangeText={onChange}
-                        placeholder="Confirm New PIN"
+                        placeholder="Re-enter PIN"
                         placeholderTextColor="gray"
                         secureTextEntry={!confirmPinVisible}
                         value={value}
@@ -336,7 +344,7 @@ export default function ChangeTransactionPinScreen() {
                     )}
                   />
                   <TouchableOpacity
-                    className="absolute top-3 right-3"
+                    className="absolute top-3.5 right-3"
                     onPress={() => setConfirmPinVisible(!confirmPinVisible)}
                   >
                     <Feather
@@ -347,28 +355,37 @@ export default function ChangeTransactionPinScreen() {
                   </TouchableOpacity>
                 </View>
                 {errors.confirmPin && (
-                  <Text className="mt-1 text-[11px] text-red-500">
+                  <Text className="mt-1 text-red-500 text-xs">
                     {errors.confirmPin.message}
                   </Text>
                 )}
               </View>
 
-              {/* Change PIN Button */}
-              <View className="px-4">
-                <Button
-                  isLoading={isMutating}
-                  onPress={handleSubmit(onSubmit)}
-                  size="lg"
-                  text="CHANGE PIN"
-                  variant="primary"
-                />
+              {/* Action Buttons */}
+              <View className="flex-row space-x-3">
+                <View className="flex-1">
+                  <Button
+                    onPress={handleClose}
+                    size="lg"
+                    text="CANCEL"
+                    variant="secondary"
+                  />
+                </View>
+                <View className="flex-1">
+                  <Button
+                    disabled={isMutating}
+                    isLoading={isMutating}
+                    onPress={handleSubmit(onSubmit)}
+                    size="lg"
+                    text="CHANGE PIN"
+                    variant="primary"
+                  />
+                </View>
               </View>
-
-              <View className="mb-5" />
             </View>
-          </View>
-        </ScrollView>
-      </ImageBackground>
-    </KeyboardAvoidingView>
+          </ScrollView>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }

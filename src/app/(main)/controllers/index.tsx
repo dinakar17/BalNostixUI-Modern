@@ -9,6 +9,7 @@
  */
 
 import { useFocusEffect } from "@react-navigation/native";
+import { captureMessage } from "@sentry/react-native";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -131,6 +132,22 @@ export default function ControllersScreen() {
 
       if (elapsedTime >= TIMEOUT_MS) {
         console.log("[Controllers] Config reset timeout");
+
+        captureMessage("Dongle not responding during config reset", {
+          level: "error",
+          tags: {
+            operation: "config_reset_timeout",
+            ecu_name: ecu.ecuName,
+          },
+          extra: {
+            ecu_index: ecuIndex,
+            is_dongle: isDongle,
+            data_transfer_mode: dataTransferMode,
+            is_stuck_in_boot: isDongleStuckInBoot,
+            timeout_ms: TIMEOUT_MS,
+          },
+        });
+
         toastError("Dongle Not Responding", "Please disconnect and try again");
         setIsLoading(false);
       }
@@ -237,27 +254,27 @@ export default function ControllersScreen() {
       // Check if offline analytics collection is needed
       if (checkCollectionNeeds) {
         let needsCollection = false;
+        let reason = "";
 
         // Check if ECU supports offline analytics
         if (!updatedECUData.isEEDumpOperation) {
+          reason = "ECU does not support OA";
           console.log(
-            `[Controllers] ${updatedECUData.ecuName} does not support OA`
+            `[OA] ⏭️  COLLECTION SKIPPED | VIN: ${vin} | ECU: ${updatedECUData.ecuName} | Reason: ${reason}`
           );
         } else if (updatedECUData.isForceEachTimeOA) {
           // Force collection if configured
-          console.log(
-            `[Controllers] ${updatedECUData.ecuName} force collection enabled`
-          );
+          reason = "Force collection enabled for this ECU";
           needsCollection = true;
+          console.log(
+            `[OA] ✅ COLLECTION NEEDED | VIN: ${vin} | ECU: ${updatedECUData.ecuName} | Reason: ${reason}`
+          );
         } else {
           // Check if collection is needed based on storage
           needsCollection = isCollectionNeeded(vin, updatedECUData.ecuName);
         }
 
         if (!needsCollection) {
-          console.log(
-            `[Controllers] No OA needed for ${updatedECUData.ecuName}`
-          );
           return false;
         }
 

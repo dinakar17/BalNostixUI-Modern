@@ -17,6 +17,10 @@ type BaseResponse = {
 
 interface UploadAppLogsResponse extends BaseResponse {}
 
+interface UploadFlashLogsResponse extends BaseResponse {}
+
+interface PostFlashSuccessResponse extends BaseResponse {}
+
 interface UploadEeDumpResponse extends BaseResponse {
   successCount: number;
   failedCount: number;
@@ -27,6 +31,18 @@ type UploadAppLogsParams = {
   serialNumber: string;
   vinNumber: string;
   hexFile: string;
+};
+
+type UploadFlashLogsParams = {
+  serialNumber: string;
+  vinNumber: string;
+  hexFile: string;
+};
+
+type PostFlashSuccessParams = {
+  serialNumber: string;
+  vinNumber: string;
+  hexFileName: string;
 };
 
 type UploadEeDumpParams = Record<string, never>;
@@ -55,7 +71,7 @@ const uploadSingleJob = async (
 
     // Check if file exists
     if (!file.exists) {
-      console.log(`File not found: ${fileUri}`);
+      console.log(`[DataTransferAPI] File not found: ${fileUri}`);
       return false;
     }
 
@@ -94,10 +110,10 @@ const uploadSingleJob = async (
       return true;
     }
 
-    console.log("Upload failed:", data);
+    console.log("[DataTransferAPI] Upload failed:", data);
     return false;
   } catch (error) {
-    console.error("Upload job error:", error);
+    console.error("[DataTransferAPI] Upload job error:", error);
     return false;
   }
 };
@@ -132,7 +148,7 @@ async function uploadAppLogsMutation(
     const appExists = appDir.exists;
 
     if (!(balExists || appExists)) {
-      console.log("No logs found to upload");
+      console.log("[DataTransferAPI] No logs found to upload");
       return {
         error: 0,
         message: "No logs found to upload",
@@ -154,7 +170,7 @@ async function uploadAppLogsMutation(
       appDir.copy(destAppDir);
     }
 
-    console.log("Logs prepared for upload:", {
+    console.log("[DataTransferAPI] Logs prepared for upload:", {
       serialNumber: arg.serialNumber,
       vinNumber: arg.vinNumber,
       hexFile: arg.hexFile,
@@ -215,7 +231,115 @@ async function uploadAppLogsMutation(
       message: "Logs uploaded successfully",
     };
   } catch (error) {
-    console.error("uploadAppLogs error:", error);
+    console.error("[DataTransferAPI] uploadAppLogs error:", error);
+    throw error;
+  }
+}
+
+async function uploadFlashLogsMutation(
+  _url: string,
+  { arg }: { arg: UploadFlashLogsParams }
+): Promise<UploadFlashLogsResponse> {
+  const { useAuthStore } = await import("@/store/auth-store");
+  const { userInfo } = useAuthStore.getState();
+  const token = userInfo?.token;
+
+  if (!token) {
+    throw new Error("No authentication token available");
+  }
+
+  try {
+    const response = await fetch(`${ENV.FMS_URL}/api/v4/app-logs`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        serial_number: arg.serialNumber,
+        vin_number: arg.vinNumber,
+        hex_file: arg.hexFile,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      console.log("[DataTransferAPI] Flash logs uploaded successfully");
+      return {
+        error: 0,
+        message: data.message || "Logs uploaded successfully",
+      };
+    }
+
+    console.log("[DataTransferAPI] Flash logs upload failed:", data);
+    return {
+      error: 1,
+      message: data.message || "Upload failed",
+    };
+  } catch (error) {
+    console.error("[DataTransferAPI] uploadFlashLogs error:", error);
+    throw error;
+  }
+}
+
+async function postFlashSuccessMutation(
+  _url: string,
+  { arg }: { arg: PostFlashSuccessParams }
+): Promise<PostFlashSuccessResponse> {
+  const { useAuthStore } = await import("@/store/auth-store");
+  const { userInfo } = useAuthStore.getState();
+  const token = userInfo?.token;
+
+  if (!token) {
+    throw new Error("No authentication token available");
+  }
+
+  try {
+    const response = await fetch(`${ENV.FMS_URL}/api/v4/vin/hexfile/install`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        serial_number: arg.serialNumber,
+        vin_number: arg.vinNumber,
+        hexfiles: [
+          {
+            hexfile_name: arg.hexFileName,
+            status: "1",
+            logfile: "",
+            comments: "Done",
+          },
+        ],
+      }),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      console.log("[DataTransferAPI] Flash success posted successfully");
+      return {
+        error: 0,
+        message: data.message || "Flash success posted",
+      };
+    }
+
+    if (response.status === 401) {
+      return {
+        error: 401,
+        message: "Unauthorized",
+      };
+    }
+
+    console.log("[DataTransferAPI] Post flash success failed:", data);
+    return {
+      error: 1,
+      message: data.message || "Post failed",
+    };
+  } catch (error) {
+    console.error("[DataTransferAPI] postFlashSuccess error:", error);
     throw error;
   }
 }
@@ -258,7 +382,9 @@ async function uploadEeDumpWithEcuMutation(
     let successCount = 0;
     let skippedCount = 0;
 
-    console.log(`Starting EE dump upload: ${totalJobs} job(s) pending`);
+    console.log(
+      `[DataTransferAPI] Starting EE dump upload: ${totalJobs} job(s) pending`
+    );
 
     for (const job of jobs) {
       // Check if file exists using new API
@@ -269,7 +395,7 @@ async function uploadEeDumpWithEcuMutation(
       const file = new File(fileUri);
 
       if (!file.exists) {
-        console.log(`File not found, skipping: ${fileUri}`);
+        console.log(`[DataTransferAPI] File not found, skipping: ${fileUri}`);
         skippedCount += 1;
         continue;
       }
@@ -286,9 +412,8 @@ async function uploadEeDumpWithEcuMutation(
     storage.set("eeDumpJobs", JSON.stringify(failedJobs));
 
     console.log(
-      `EE dump upload complete: ${successCount} successful, ${failedJobs.length} failed${skippedCount > 0 ? `, ${skippedCount} skipped (file not found)` : ""}`
+      `[DataTransferAPI] EE dump upload complete: ${successCount} successful, ${failedJobs.length} failed${skippedCount > 0 ? `, ${skippedCount} skipped (file not found)` : ""}`
     );
-
     return {
       error: 0,
       message: "EE dump upload completed",
@@ -297,7 +422,7 @@ async function uploadEeDumpWithEcuMutation(
       skippedCount,
     };
   } catch (error) {
-    console.error("uploadEeDumpWithEcu error:", error);
+    console.error("[DataTransferAPI] uploadEeDumpWithEcu error:", error);
     throw error;
   }
 }
@@ -323,6 +448,38 @@ export function useUploadAppLogs() {
 }
 
 /**
+ * Hook for uploading flash logs to server
+ * @returns SWR mutation hook with trigger function and state
+ * @example
+ * const { trigger, isMutating, error } = useUploadFlashLogs();
+ * const result = await trigger({ serialNumber: "SN123", vinNumber: "VIN456", hexFile: "file.hex" });
+ */
+export function useUploadFlashLogs() {
+  return useSWRMutation<
+    UploadFlashLogsResponse,
+    Error,
+    string,
+    UploadFlashLogsParams
+  >("/api/v4/app-logs", uploadFlashLogsMutation);
+}
+
+/**
+ * Hook for posting flash success to server
+ * @returns SWR mutation hook with trigger function and state
+ * @example
+ * const { trigger, isMutating, error } = usePostFlashSuccess();
+ * const result = await trigger({ serialNumber: "SN123", vinNumber: "VIN456", hexFileName: "file.hex" });
+ */
+export function usePostFlashSuccess() {
+  return useSWRMutation<
+    PostFlashSuccessResponse,
+    Error,
+    string,
+    PostFlashSuccessParams
+  >("/api/v4/vin/hexfile/install", postFlashSuccessMutation);
+}
+
+/**
  * Hook for uploading EE dump with ECU info
  * @returns SWR mutation hook with trigger function and state
  * @example
@@ -344,7 +501,11 @@ export function useUploadEeDumpWithEcu() {
 
 export type {
   UploadAppLogsResponse,
+  UploadFlashLogsResponse,
+  PostFlashSuccessResponse,
   UploadEeDumpResponse,
   UploadAppLogsParams,
+  UploadFlashLogsParams,
+  PostFlashSuccessParams,
   UploadEeDumpParams,
 };

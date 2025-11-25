@@ -76,6 +76,26 @@ type ResetPinParams = {
   pin: string;
 };
 
+type GetDongleInfoParams = {
+  dongle_mac_id: string;
+};
+
+type CreateDongleParams = {
+  dongle_mac_id: string;
+  dealer_code: string;
+  status: string;
+  tool_serial_no: string;
+};
+
+type DongleInfoResponse = BaseResponse & {
+  data?: Array<{
+    status: string;
+    [key: string]: unknown;
+  }>;
+};
+
+type CreateDongleResponse = BaseResponse;
+
 // ============================================
 // Mutation Functions
 // ============================================
@@ -222,6 +242,57 @@ async function resetPinMutation(
   return response.data;
 }
 
+async function getDongleInfoMutation(
+  url: string,
+  { arg }: { arg: GetDongleInfoParams }
+): Promise<DongleInfoResponse> {
+  // Import dynamically to avoid circular dependency
+  const { useAuthStore } = await import("@/store/auth-store");
+  const { userInfo } = useAuthStore.getState();
+  const token = userInfo?.token;
+
+  if (!token) {
+    throw new Error("No authentication token available");
+  }
+
+  const response = await FMSApi.get(url, {
+    headers: { Authorization: `Bearer ${token}` },
+    params: { dongle_mac_id: arg.dongle_mac_id },
+    timeout: 30_000,
+  });
+  return response.data;
+}
+
+async function createDongleMutation(
+  url: string,
+  { arg }: { arg: CreateDongleParams }
+): Promise<CreateDongleResponse> {
+  // Import dynamically to avoid circular dependency
+  const { useAuthStore } = await import("@/store/auth-store");
+  const { userInfo } = useAuthStore.getState();
+  const token = userInfo?.token;
+
+  if (!token) {
+    throw new Error("No authentication token available");
+  }
+
+  const response = await FMSApi.post(
+    url,
+    {},
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      params: {
+        dongle_mac_id: arg.dongle_mac_id,
+        dealer_code: arg.dealer_code,
+        status: arg.status,
+        tool_serial_no: arg.tool_serial_no,
+      },
+      timeout: 30_000,
+    }
+  );
+  return response.data;
+}
+
 // ============================================
 // Custom Hooks
 // ============================================
@@ -346,6 +417,41 @@ export function useResetPin() {
   );
 }
 
+/**
+ * Hook for getting dongle information from VNSM server
+ * @returns SWR mutation hook with trigger function and state
+ * @example
+ * const { trigger, isMutating, error } = useGetDongleInfo();
+ * const result = await trigger({ dongle_mac_id: "ABC123" });
+ */
+export function useGetDongleInfo() {
+  return useSWRMutation<DongleInfoResponse, Error, string, GetDongleInfoParams>(
+    "/api/v4/ap/dongle/get",
+    getDongleInfoMutation
+  );
+}
+
+/**
+ * Hook for creating a new dongle record on the server
+ * @returns SWR mutation hook with trigger function and state
+ * @example
+ * const { trigger, isMutating, error } = useCreateDongle();
+ * const result = await trigger({
+ *   dongle_mac_id: "ABC123",
+ *   dealer_code: "DEALER01",
+ *   status: "Active",
+ *   tool_serial_no: "TOOL123"
+ * });
+ */
+export function useCreateDongle() {
+  return useSWRMutation<
+    CreateDongleResponse,
+    Error,
+    string,
+    CreateDongleParams
+  >("/api/v4/ap/dongle", createDongleMutation);
+}
+
 // ============================================
 // Export Types for External Use
 // ============================================
@@ -358,6 +464,8 @@ export type {
   ForgotPasswordResponse,
   ResetPinResponse,
   VerifyAppVersionResponse,
+  DongleInfoResponse,
+  CreateDongleResponse,
   LoginParams,
   GetOTPParams,
   RegisterParams,
@@ -365,4 +473,6 @@ export type {
   ForgotPasswordParams,
   ResetPinParams,
   VerifyAppVersionParams,
+  GetDongleInfoParams,
+  CreateDongleParams,
 };

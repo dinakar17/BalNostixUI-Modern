@@ -9,7 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
-import { FMSApi } from "@/api/fms";
+import { useCreateDongle, useGetDongleInfo } from "@/api/auth";
 import { warningSmall } from "@/assets/images/index";
 import { PrimaryButton } from "@/components/ui/button";
 import { fonts } from "@/constants/fonts";
@@ -52,12 +52,19 @@ export function DongleAuthModal() {
   const [dealerCode, setDealerCode] = useState("");
   const [dealerCodeVisible, setDealerCodeVisible] = useState(false);
 
-  const token = userInfo?.token;
+  const { trigger: getDongleInfo } = useGetDongleInfo();
+  const { trigger: createDongle } = useCreateDongle();
+
   const tool_serial_number = userInfo?.serial_number;
 
   const createDongleOnServer = async () => {
     if (dealerCode.length === 0) {
       toastError("Please enter a valid dealer code");
+      return;
+    }
+
+    if (!(tool_serial_number && dongleSerialNo)) {
+      toastError("Missing required information");
       return;
     }
 
@@ -68,27 +75,20 @@ export function DongleAuthModal() {
 
       console.log("[DongleAuth] Creating dongle record");
 
-      const response = await FMSApi({
-        method: "post",
-        url: "/api/v4/ap/dongle",
-        headers: { Authorization: `Bearer ${token}` },
-        data: {},
-        params: {
-          dongle_mac_id: dongleSerialNo,
-          dealer_code: dealerCode,
-          status: "Active",
-          tool_serial_no: tool_serial_number,
-        },
-        timeout: 30_000,
+      const response = await createDongle({
+        dongle_mac_id: dongleSerialNo,
+        dealer_code: dealerCode,
+        status: "Active",
+        tool_serial_no: tool_serial_number,
       });
 
-      if (response.data.message === "Success") {
+      if (response.message === "Success") {
         setDongleInfoTitle("Dongle record created. Connecting with dongle");
         updateDevice();
-      } else if (response.data.message === "Validation failed") {
+      } else if (response.message === "Validation failed") {
         toastError(
           "Validation Failed",
-          `${response.data.message}. Please contact the service person`
+          `${response.message}. Please contact the service person`
         );
       } else {
         console.log("[DongleAuth] serialNo:", dongleSerialNo);
@@ -144,26 +144,21 @@ export function DongleAuthModal() {
     try {
       console.log("[DongleAuth] Getting dongle info:", dongleSerialNo);
 
-      const response = await FMSApi({
-        method: "get",
-        url: "/api/v4/ap/dongle/get",
-        headers: { Authorization: `Bearer ${token}` },
-        data: {},
-        params: { dongle_mac_id: dongleSerialNo },
-        timeout: 30_000,
+      const response = await getDongleInfo({
+        dongle_mac_id: dongleSerialNo,
       });
 
-      console.log("[DongleAuth] Response:", response.data.message);
+      console.log("[DongleAuth] Response:", response.message);
 
-      if (response.data.message === "Not Found") {
+      if (response.message === "Not Found") {
         console.log("[DongleAuth] Dongle not found on server");
         setDongleInfoTitle("");
         setDealerCodeVisible(true);
         updateIsGettingDongleDeviceInfo(true);
-      } else if (response.data.message === "Success") {
-        const dongleStatus = response.data.data[0];
+      } else if (response.message === "Success") {
+        const dongleStatus = response.data?.[0];
 
-        if (dongleStatus.status === "Active") {
+        if (dongleStatus?.status === "Active") {
           console.log("[DongleAuth] Dongle status:", dongleStatus.status);
           setDongleInfoTitle(
             "Dongle status authenticated. Connecting with dongle!"
@@ -171,7 +166,7 @@ export function DongleAuthModal() {
           updateDevice();
         } else {
           toastError(
-            `Dongle ${dongleStatus.status}`,
+            `Dongle ${dongleStatus?.status ?? "Unknown"}`,
             "Please contact the service person."
           );
         }

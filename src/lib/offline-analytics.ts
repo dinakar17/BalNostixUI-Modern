@@ -146,14 +146,16 @@ export function isCollectionNeeded(
 
   // No data for this VIN
   if (!data[vinNumber]) {
-    console.log(`[OA] Collection needed - VIN not found: ${vinNumber}`);
+    console.log(
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: No data exists for this VIN`
+    );
     return true;
   }
 
   // No data for this ECU
   if (!data[vinNumber][ecuName]) {
     console.log(
-      `[OA] Collection needed - ECU not found: ${ecuName} for VIN: ${vinNumber}`
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: No data exists for this ECU`
     );
     return true;
   }
@@ -162,26 +164,61 @@ export function isCollectionNeeded(
 
   // Missing date or status
   if (!record.oaDate || record.oaDataStatus === undefined) {
-    console.log(`[OA] Collection needed - Incomplete record for ${ecuName}`);
+    console.log(
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: Incomplete record (missing date or status)`
+    );
     return true;
   }
 
   // Data is from previous day
   if (record.oaDate !== today) {
     console.log(
-      `[OA] Collection needed - Outdated data (${record.oaDate} vs ${today})`
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: Outdated data (Last: ${record.oaDate}, Today: ${today})`
     );
     return true;
   }
 
   // Check if previous collection was successful
   const needsCollection = record.oaDataStatus !== OACollectionStatus.SUCCESS;
+  const statusText = getStatusText(record.oaDataStatus);
 
-  console.log(
-    `[OA] Today's data found - Status: ${record.oaDataStatus}, Needs collection: ${needsCollection}`
-  );
+  if (needsCollection) {
+    console.log(
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: Previous collection failed (Status: ${record.oaDataStatus} - ${statusText}, Date: ${record.oaDate})`
+    );
+  } else {
+    console.log(
+      `[OA] ⏭️  COLLECTION SKIPPED | VIN: ${vinNumber} | ECU: ${ecuName} | Reason: Already collected successfully today (Status: ${record.oaDataStatus} - ${statusText}, Date: ${record.oaDate})`
+    );
+  }
 
   return needsCollection;
+}
+
+/**
+ * Get human-readable status text for OA collection status code
+ */
+function getStatusText(status: OACollectionStatusCode): string {
+  switch (status) {
+    case OACollectionStatus.STARTED:
+      return "Started";
+    case OACollectionStatus.SUCCESS:
+      return "Success";
+    case OACollectionStatus.LIBRARY_ERROR:
+      return "Library Error";
+    case OACollectionStatus.LIBRARY_ERROR_NEG2:
+      return "Library Error (-2)";
+    case OACollectionStatus.EXCEPTION:
+      return "Exception";
+    case OACollectionStatus.TIMEOUT_GENERAL:
+      return "Timeout (General)";
+    case OACollectionStatus.TIMEOUT_NO_RESPONSE:
+      return "Timeout (No Response)";
+    case OACollectionStatus.TIMEOUT_MAX:
+      return "Timeout (Max 10min)";
+    default:
+      return `Unknown (${status})`;
+  }
 }
 
 /**

@@ -1,3 +1,4 @@
+import { captureException, captureMessage } from "@sentry/react-native";
 import dayjs from "dayjs";
 import duration from "dayjs/plugin/duration";
 import { Image } from "expo-image";
@@ -13,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { Bar as ProgressBar } from "react-native-progress";
-import { FMSApi } from "@/api/fms";
+import { usePostFlashSuccess, useUploadFlashLogs } from "@/api/data-transfer";
 import { infoIcon } from "@/assets/images/index";
 import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
@@ -44,6 +45,8 @@ export default function ControllerFlashScreen() {
   const { selectedEcu, controllersData, setIsUpdateAvailableToFalse } =
     useDataTransferStore();
   const { userInfo, handleLogout } = useAuthStore();
+  const { trigger: uploadFlashLogs } = useUploadFlashLogs();
+  const { trigger: postFlashSuccess } = usePostFlashSuccess();
 
   const [isVisible, setIsVisible] = useState(false);
   const [flashingState, setFlashingState] = useState<FlashingState | null>(
@@ -56,7 +59,7 @@ export default function ControllerFlashScreen() {
   const [flashDuration, setFlashDuration] = useState<duration.Duration | null>(
     null
   );
-  const [isTimeTextVisible, setTimeTextVisible] = useState(false);
+  const [isPerFrameUpdateEnabled, setPerFrameUpdateEnabled] = useState(false);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionRef = useRef<{ remove: () => void } | null>(null);
@@ -73,8 +76,23 @@ export default function ControllerFlashScreen() {
       return;
     }
 
+    // Timeout to detect unresponsive ECU during flashing
+    // Uses dynamicWaitTime from ECU config (default: 6000ms)
     const id = setTimeout(() => {
-      console.log("Flash timeout reached");
+      console.log("[ControllerFlash] Flash timeout reached");
+
+      captureMessage("Controller flash timeout", {
+        level: "warning",
+        tags: {
+          operation: "controller_flash",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          timeout_duration: delay,
+          ecu_index: selectedEcu?.index,
+        },
+      });
+
       isFlashingUpdatedRef.current = false;
       setIsVisible(false);
       setIsFlashing(false);
@@ -119,21 +137,24 @@ export default function ControllerFlashScreen() {
           vinNumber: string;
           oldHexFileName: string;
         };
-        await FMSApi.post(
-          "/api/v4/app-logs",
-          {
-            serial_number: userInfo.serial_number,
-            vin_number: ecu.vinNumber,
-            hex_file: ecu.oldHexFileName,
-          },
-          {
-            headers: { Authorization: `Bearer ${userInfo.token}` },
-            timeout: 30_000,
-          }
-        );
+        await uploadFlashLogs({
+          serialNumber: userInfo.serial_number,
+          vinNumber: ecu.vinNumber,
+          hexFile: ecu.oldHexFileName,
+        });
       }
     } catch (error) {
-      console.log("Upload logs error:", error);
+      console.log("[ControllerFlash] Upload logs error:", error);
+      captureException(error, {
+        tags: {
+          operation: "upload_flash_logs",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          serial_number: userInfo?.serial_number,
+        },
+      });
     }
   };
 
@@ -153,21 +174,24 @@ export default function ControllerFlashScreen() {
           vinNumber: string;
           oldHexFileName: string;
         };
-        await FMSApi.post(
-          "/api/v4/app-logs",
-          {
-            serial_number: userInfo.serial_number,
-            vin_number: ecu.vinNumber,
-            hex_file: ecu.oldHexFileName,
-          },
-          {
-            headers: { Authorization: `Bearer ${userInfo.token}` },
-            timeout: 30_000,
-          }
-        );
+        await uploadFlashLogs({
+          serialNumber: userInfo.serial_number,
+          vinNumber: ecu.vinNumber,
+          hexFile: ecu.oldHexFileName,
+        });
       }
     } catch (error) {
-      console.log("Upload logs on success error:", error);
+      console.log("[ControllerFlash] Upload logs on success error:", error);
+      captureException(error, {
+        tags: {
+          operation: "upload_logs_on_success",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          serial_number: userInfo?.serial_number,
+        },
+      });
     }
   };
 
@@ -183,36 +207,46 @@ export default function ControllerFlashScreen() {
         vinNumber: string;
         oldHexFileName: string;
       };
-      await FMSApi({
-        method: "post",
-        url: "/api/v4/vin/hexfile/install",
-        headers: { Authorization: `Bearer ${userInfo.token}` },
-        data: {
-          serial_number: userInfo.serial_number,
-          vin_number: ecu.vinNumber,
-          hexfiles: [
-            {
-              hexfile_name: ecu.oldHexFileName,
-              status: "1",
-              logfile: "",
-              comments: "Done",
-            },
-          ],
-        },
-        timeout: 30_000,
+
+      const response = await postFlashSuccess({
+        serialNumber: userInfo.serial_number,
+        vinNumber: ecu.vinNumber,
+        hexFileName: ecu.oldHexFileName,
       });
 
-      await uploadLogsOnSuccess();
-    } catch (error: unknown) {
-      if (error && typeof error === "object" && "response" in error) {
-        const err = error as { response?: { status?: number } };
-        if (err.response?.status === 401) {
-          toastError("You've been inactive for a while, Please login again.");
-          handleLogout();
-          return;
-        }
+      if (response.error === 401) {
+        toastError("You've been inactive for a while, Please login again.");
+        handleLogout();
+        return;
       }
-      console.log("Post success flash error:", error);
+
+      await uploadLogsOnSuccess();
+
+      // Log successful flash completion to Sentry
+      captureMessage("Controller flash completed successfully", {
+        level: "info",
+        tags: {
+          operation: "controller_flash_success",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          hex_file: ecu.oldHexFileName,
+          vin_number: ecu.vinNumber,
+        },
+      });
+    } catch (error: unknown) {
+      console.log("[ControllerFlash] Post success flash error:", error);
+      captureException(error, {
+        tags: {
+          operation: "post_flash_success",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          serial_number: userInfo?.serial_number,
+        },
+      });
     }
   };
 
@@ -244,6 +278,21 @@ export default function ControllerFlashScreen() {
   const handleFlashFailure = (flashResponse: FlashingState) => {
     if (flashResponse?.status?.toLowerCase()?.includes("same version")) {
       postSuccessFlash();
+    } else {
+      // Capture flash failure in Sentry
+      captureMessage("Controller flash failed", {
+        level: "error",
+        tags: {
+          operation: "controller_flash_failure",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          failure_status: flashResponse.status,
+          main_progress: flashResponse.mainProgress,
+          sub_progress: flashResponse.subProgress,
+          ecu_index: selectedEcu?.index,
+        },
+      });
     }
 
     cleanup();
@@ -263,18 +312,6 @@ export default function ControllerFlashScreen() {
     return false;
   };
 
-  const updateFlashProgress = () => {
-    if (isTimeTextVisible && selectedEcu?.dynamicWaitTime) {
-      handleStartTimeout(selectedEcu.dynamicWaitTime);
-    }
-
-    if (timeStartRef.current) {
-      const now = dayjs();
-      const diff = now.diff(timeStartRef.current);
-      setFlashDuration(dayjs.duration(diff));
-    }
-  };
-
   const onResponse = (response: {
     name: string;
     value: { mainProgress: number; subProgress: number; status: string };
@@ -285,12 +322,13 @@ export default function ControllerFlashScreen() {
         status: getStatus(response.value.status),
       };
 
-      if (isTimeTextVisible) {
+      if (isPerFrameUpdateEnabled) {
         console.log(
-          "handleStartTimeout onresponse cancel old and new start",
+          "[ControllerFlash] handleStartTimeout onresponse cancel old and new start",
           ", delay:",
           selectedEcu?.dynamicWaitTime
         );
+        // Reset timeout on each frame update to detect ECU unresponsiveness
         if (selectedEcu?.dynamicWaitTime) {
           handleStartTimeout(selectedEcu.dynamicWaitTime);
         }
@@ -304,7 +342,17 @@ export default function ControllerFlashScreen() {
         setPrevFlashingState(flashResponse);
       }
 
-      updateFlashProgress();
+      // Reset timeout when progress update received (ECU is still responding)
+      if (isPerFrameUpdateEnabled && selectedEcu?.dynamicWaitTime) {
+        handleStartTimeout(selectedEcu.dynamicWaitTime);
+      }
+
+      // Update elapsed flashing duration for display
+      if (timeStartRef.current) {
+        const now = dayjs();
+        const diff = now.diff(timeStartRef.current);
+        setFlashDuration(dayjs.duration(diff));
+      }
 
       // Failure condition
       if (
@@ -327,7 +375,7 @@ export default function ControllerFlashScreen() {
 
       setFlashingState(flashResponse);
     } else if (response.name === "bootFlash") {
-      console.log(response?.value);
+      console.log("[ControllerFlash] bootFlash response:", response?.value);
     }
   };
 
@@ -368,18 +416,35 @@ export default function ControllerFlashScreen() {
       setIsFlashing(true);
       isFlashingUpdatedRef.current = true;
       timeStartRef.current = dayjs();
-      setTimeTextVisible(selectedEcu.isShowUpdatePerFrameTime);
 
-      console.log(
-        "handleStartTimeout reProgram on clicked start isShowUpdatePerFrameTime:",
-        selectedEcu.isShowUpdatePerFrameTime,
-        ", delay:",
-        selectedEcu.dynamicWaitTime
-      );
+      // isShowUpdatePerFrameTime: Enable per-frame progress updates (default: true)
+      // dynamicWaitTime: Max time to wait for ECU response (default: 6000ms)
+      setPerFrameUpdateEnabled(selectedEcu.isShowUpdatePerFrameTime);
 
-      if (isTimeTextVisible && selectedEcu.dynamicWaitTime) {
+      // Log flash start to Sentry
+      captureMessage("Controller flash started", {
+        level: "info",
+        tags: {
+          operation: "controller_flash_start",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          is_per_frame_update: selectedEcu.isShowUpdatePerFrameTime,
+          dynamic_wait_time: selectedEcu.dynamicWaitTime,
+        },
+      });
+
+      console.log("[ControllerFlash] Starting reprogramming", {
+        isShowUpdatePerFrameTime: selectedEcu.isShowUpdatePerFrameTime,
+        dynamicWaitTime: selectedEcu.dynamicWaitTime,
+      });
+
+      if (isPerFrameUpdateEnabled && selectedEcu.dynamicWaitTime) {
+        // Use ECU-specific timeout for monitoring responsiveness
         handleStartTimeout(selectedEcu.dynamicWaitTime);
       } else {
+        // Fallback: Use long timeout when per-frame updates disabled
         let totalTime = 0;
         while (isFlashingUpdatedRef.current) {
           await sleep(10);
@@ -394,7 +459,16 @@ export default function ControllerFlashScreen() {
         }
       }
     } catch (error) {
-      console.log("reProgram error:", error);
+      console.log("[ControllerFlash] reProgram error:", error);
+      captureException(error, {
+        tags: {
+          operation: "reprogram_start",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+        },
+      });
       handleFailure("Failed to start flashing");
     }
   };
@@ -479,7 +553,7 @@ export default function ControllerFlashScreen() {
         <Text className="my-4 pt-5 text-center font-helveticaBold text-xl">
           {selectedEcu?.ecuName}
         </Text>
-        {isTimeTextVisible && flashDuration && (
+        {isPerFrameUpdateEnabled && flashDuration && (
           <Text className="my-4 text-center font-helveticaBold text-xl">
             Flashing Time:{formatDuration(flashDuration)}
           </Text>
