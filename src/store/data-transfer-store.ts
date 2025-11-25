@@ -234,7 +234,7 @@ export const useDataTransferStore = create<DataTransferState>()((set) => ({
 
   // Set VIN
   setVin: (vin: string) => {
-    console.log("setVin called:", vin);
+    console.log("[DataTransferStore] setVin called:", vin);
     set({ vin });
   },
 

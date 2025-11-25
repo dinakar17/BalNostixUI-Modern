@@ -84,15 +84,7 @@ export function CustomHeader({
 
     if (leftButtonType === "back") {
       return (
-        <TouchableOpacity
-          className="p-2"
-          onPress={() => {
-            leftButtonFunction();
-            if (router.canGoBack()) {
-              router.back();
-            }
-          }}
-        >
+        <TouchableOpacity className="p-2" onPress={leftButtonFunction}>
           <Image className="h-6 w-6" resizeMode="contain" source={backBtn} />
         </TouchableOpacity>
       );

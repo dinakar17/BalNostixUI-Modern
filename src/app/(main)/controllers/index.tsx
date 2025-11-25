@@ -1,5 +1,14 @@
+/**
+ * Controllers Screen
+ *
+ * Main screen displaying available vehicle ECUs (Electronic Control Units).
+ * Handles:
+ * - Auto-triggering offline analytics collection for VCU/BMS on launch
+ * - Manual ECU selection for diagnostics/operations
+ * - Config reset and basic info reading workflow
+ */
+
 import { useFocusEffect } from "@react-navigation/native";
-import dayjs from "dayjs";
 import { router } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -9,12 +18,16 @@ import {
   ScrollView,
   View,
 } from "react-native";
-import { createMMKV } from "react-native-mmkv";
+
 import { cpu } from "@/assets/images";
 import type { TileItem } from "@/components/tiles/tile";
 import { Tiles } from "@/components/tiles/tiles";
 import { CustomHeader } from "@/components/ui/header";
 import { OverlayLoading, OverlayView } from "@/components/ui/overlay";
+import {
+  cleanupOldCollectionData,
+  isCollectionNeeded,
+} from "@/lib/offline-analytics";
 import { toastError } from "@/lib/toast";
 import { handleJsonParse } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -25,29 +38,27 @@ import type { UpdateUINotification } from "@/types/update-ui.types";
 
 const { BluetoothModule, USBModule } = NativeModules;
 
-const storage = createMMKV();
-let isConfigResetInProcess = false;
+let isConfigResetInProgress = false;
 
-function sleep(ms: number) {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export default function ControllersScreen() {
-  const [overlayView, setOverlayView] = useState(false);
-  const [oacStatus, setOACStatus] = useState(false);
-  const [fullScreenLoading, setFullScreenLoading] = useState(false);
-  const [selectedEcuIndex, setSelectedEcuIndex] = useState<number | null>(null);
-  const [eventEmitter, setEventEmitter] = useState<NativeEventEmitter | null>(
-    null
-  );
+/**
+ * Check if an ECU should trigger offline analytics collection
+ */
+function isTargetECUForCollection(ecuName: string): boolean {
+  const name = ecuName.toLowerCase();
+  return name.includes("vcu") || name.includes("bms");
+}
 
+export default function ControllersScreen() {
   const { dataTransferMode } = useAuthStore();
   const {
     controllersData,
     isDonglePhase3State,
     vin,
     isDongleStuckInBoot,
-    isDongleDeviceInfoSet,
     setSelectedEcu,
     setControllersUpdatedData,
     disconnectFromDevice,
@@ -56,322 +67,356 @@ export default function ControllersScreen() {
     updateIsDongleDeviceInfoSet,
   } = useDataTransferStore();
 
-  const [controllersList, setControllersList] = useState<TileItem[]>([]);
+  const [showDisconnectOverlay, setShowDisconnectOverlay] = useState(false);
+  const [isCollectionMode, setIsCollectionMode] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedEcuIndex, setSelectedEcuIndex] = useState<number | null>(null);
+  const [eventEmitter, setEventEmitter] = useState<NativeEventEmitter | null>(
+    null
+  );
 
-  const callResetConfig = async (index: number) => {
+  // Derive controller tiles from controllersData - no need for separate state
+  const controllersList: TileItem[] = controllersData.map((controller) => ({
+    id: controller.index.toString(),
+    name: controller.ecuName,
+    image: cpu,
+    function: () => setupECU(controller.index),
+    isActive: true,
+  }));
+
+  // ============================================
+  // ECU Configuration & Info Reading
+  // ============================================
+
+  /**
+   * Reset ECU configuration and handle special cases (Dongle self-flash)
+   */
+  const resetECUConfig = async (ecuIndex: number): Promise<void> => {
     try {
-      console.log("[Controllers] Reset config for index:", index);
-      const obj = controllersData[index];
+      const ecu = controllersData[ecuIndex];
+      // Note: This is never found since we don't have Dongle Record in VNSM server
+      const isDongle = ecu.ecuName.toLowerCase().includes("dongle");
 
-      if (
-        obj.ecuName.toLowerCase().includes("dongle") &&
-        dataTransferMode === "USB" &&
-        !isDongleStuckInBoot
-      ) {
-        BluetoothModule.startSelfFlash(index);
+      console.log(`[Controllers] Resetting config for: ${ecu.ecuName}`);
+
+      // Special handling for Dongle in USB mode
+      if (isDongle && dataTransferMode === "USB" && !isDongleStuckInBoot) {
+        console.log("[Controllers] Starting dongle self-flash");
+        BluetoothModule.startSelfFlash(ecuIndex);
         updateIsDongleDeviceInfoSet(true);
-        console.log(
-          "[Controllers] Self flash started, isDongleDeviceInfoSet:",
-          isDongleDeviceInfoSet
-        );
-      } else if (!isDongleStuckInBoot) {
-        BluetoothModule.resetConfig(index);
-      } else if (
-        isDongleStuckInBoot &&
-        obj.ecuName.toLowerCase().includes("dongle")
-      ) {
-        readEcuBasicInfo(index);
+        return;
       }
 
-      isConfigResetInProcess = true;
-      let totalTime = 0;
-
-      while (isConfigResetInProcess) {
-        await sleep(5);
-        if (totalTime > 2000) {
-          toastError(
-            "Dongle Non Responsive",
-            "Please try again after Disconnecting the dongle"
-          );
-          isConfigResetInProcess = false;
-          setFullScreenLoading(false);
-        } else {
-          totalTime += 10;
-        }
+      // Normal config reset
+      if (!isDongleStuckInBoot) {
+        BluetoothModule.resetConfig(ecuIndex);
       }
-    } catch (err) {
-      console.error("[Controllers] Reset config error:", err);
+
+      // Stuck in boot mode - read basic info directly
+      if (isDongleStuckInBoot && isDongle) {
+        console.log("[Controllers] Dongle stuck in boot, reading basic info");
+        // Read basic ECU information via native module (Todo: readEcuBasicnfo needs to be renamed in the module)
+        BluetoothModule.readEcuBasicnfo(ecuIndex);
+      }
+
+      // Wait for config reset with timeout
+      isConfigResetInProgress = true;
+      let elapsedTime = 0;
+      const TIMEOUT_MS = 2000;
+
+      while (isConfigResetInProgress && elapsedTime < TIMEOUT_MS) {
+        await sleep(10);
+        elapsedTime += 10;
+      }
+
+      if (elapsedTime >= TIMEOUT_MS) {
+        console.log("[Controllers] Config reset timeout");
+        toastError("Dongle Not Responding", "Please disconnect and try again");
+        setIsLoading(false);
+      }
+    } catch (error) {
+      console.error("[Controllers] Reset config failed:", error);
+      setIsLoading(false);
     }
   };
 
-  const readEcuBasicInfo = (ecuIndex: number) => {
-    BluetoothModule.readEcuBasicnfo(ecuIndex);
-  };
+  // ============================================
+  // Offline Analytics Collection Logic
+  // ============================================
 
-  const checkDatacollected = (vinNumber: string, ecu: string): boolean => {
-    const jsonDataOACStr = storage.getString("jsonDataOAC");
+  /**
+   * Scan controllers for any that need offline analytics collection
+   * Starts from specified index to allow resuming after previous collection
+   */
+  const scanForCollectionNeeds = async (
+    vinNumber: string,
+    startIndex = 0
+  ): Promise<boolean> => {
+    console.log(
+      `[Controllers] Scanning for OA needs - Start: ${startIndex}, Total: ${controllersData.length} for VIN: ${vinNumber}`
+    );
 
-    if (!jsonDataOACStr) {
-      console.log("[OAC] No data, collecting now");
-      return true;
+    for (let i = startIndex; i < controllersData.length; i++) {
+      const ecu = controllersData[i];
+
+      // Only check VCU/BMS controllers
+      if (!isTargetECUForCollection(ecu.ecuName)) {
+        continue;
+      }
+
+      console.log(`[Controllers] Checking ${ecu.ecuName} at index ${i}`);
+
+      // Setup and check if collection needed
+      const needsCollection = await setupECU(i, true);
+
+      if (needsCollection) {
+        console.log(`[Controllers] Collection needed for ${ecu.ecuName}`);
+        return true;
+      }
     }
 
+    console.log("[Controllers] No collection needed");
+    return false;
+  };
+
+  /**
+   * Initialize offline analytics collection check on app launch
+   * Cleans up old data and triggers collection if needed
+   */
+  const initializeCollectionCheck = async (
+    vinNumber: string
+  ): Promise<void> => {
+    console.log(`[Controllers] Initializing OA check for VIN: ${vinNumber}`);
+
+    // Clean up old records (keep only today's data)
+    const hasStaleData = cleanupOldCollectionData();
+
+    // Scan for any ECUs that need collection
+    const needsCollection = await scanForCollectionNeeds(vinNumber);
+
+    if (!(needsCollection || hasStaleData)) {
+      setIsLoading(false);
+    }
+
+    setIsCollectionMode(needsCollection);
+  };
+
+  // ============================================
+  // ECU Setup & Navigation
+  // ============================================
+
+  /**
+   * Setup ECU for operations or offline analytics collection
+   *
+   * @param ecuIndex Index in controllersData array
+   * @param checkCollectionNeeds If true, validates if OA collection is needed
+   * @returns true if should navigate to collection screen, false otherwise
+   */
+  const setupECU = async (
+    ecuIndex: number,
+    checkCollectionNeeds = false
+  ): Promise<boolean> => {
     try {
-      const jsonResOAC = JSON.parse(jsonDataOACStr);
+      console.log(`[Controllers] Setting up ECU at index: ${ecuIndex}`);
 
-      if (!jsonResOAC[vinNumber]) {
-        console.log("[OAC] VIN undefined, collecting now");
-        return true;
-      }
+      isConfigResetInProgress = false;
+      setIsLoading(true);
+      setSelectedEcuIndex(ecuIndex);
 
-      if (!jsonResOAC[vinNumber][ecu]) {
-        console.log("[OAC] ECU undefined, collecting now");
-        return true;
-      }
+      // Fetch UDS parameters for this ECU
+      BluetoothModule.UDSParameter(ecuIndex);
 
-      if (!jsonResOAC[vinNumber][ecu].oaDate) {
-        console.log("[OAC] Date undefined, collecting now");
-        return true;
-      }
-
-      if (!jsonResOAC[vinNumber][ecu].oaDataStatus) {
-        console.log("[OAC] Status undefined, collecting now");
-        return true;
-      }
-
-      const todayDate = dayjs().format("YYYY-MM-DD");
-
-      if (jsonResOAC[vinNumber][ecu].oaDate !== todayDate) {
-        console.log("[OAC] Different date, collecting now");
-        return true;
-      }
+      // Get updated ECU record with latest data
+      const updatedECUData =
+        await BluetoothModule.getUpdatedEcuRecords(ecuIndex);
 
       console.log(
-        "[OAC] Same day, status:",
-        jsonResOAC[vinNumber][ecu].oaDataStatus
+        `[Controllers] ECU data fetched - Name: ${updatedECUData?.ecuName}, Supports OA: ${updatedECUData?.isEEDumpOperation}`
       );
-      return (
-        jsonResOAC[vinNumber][ecu].oaDate === todayDate &&
-        !(jsonResOAC[vinNumber][ecu].oaDataStatus === 1)
-      );
-    } catch (error) {
-      console.error("[OAC] Parse error:", error);
-      return true;
-    }
-  };
 
-  const gotoOfflineAnalysticIfNotCollected = async (
-    vinNumber: string,
-    indexFrom = 0
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex business logic from original implementation
-  ): Promise<boolean> => {
-    let statusOac = false;
+      // Check if offline analytics collection is needed
+      if (checkCollectionNeeds) {
+        let needsCollection = false;
 
-    if (indexFrom === 0) {
-      const jsonDataOACStr = storage.getString("jsonDataOAC");
-      console.log("[OAC] Checking for VIN:", vinNumber);
-
-      if (
-        !jsonDataOACStr ||
-        jsonDataOACStr === "null" ||
-        jsonDataOACStr.length < 10
-      ) {
-        statusOac = true;
-      } else {
-        try {
-          const jsonResOAC = JSON.parse(jsonDataOACStr);
-          const todayDate = dayjs().format("YYYY-MM-DD");
-          const keys = Object.keys(jsonResOAC);
-
-          for (const key of keys) {
-            const ecus = Object.keys(jsonResOAC[key]);
-            for (const ecu of ecus) {
-              if (jsonResOAC[key][ecu].oaDate === todayDate) {
-                statusOac =
-                  statusOac || !(jsonResOAC[key][ecu].oaDataStatus === 1);
-              } else {
-                console.log("[OAC] Deleting old data:", key, ecu);
-                delete jsonResOAC[key][ecu];
-                statusOac = true;
-              }
-            }
-            if (ecus.length === 0) {
-              statusOac = true;
-            }
-          }
-
-          storage.set("jsonDataOAC", JSON.stringify(jsonResOAC));
-        } catch (error) {
-          console.error("[OAC] Parse error:", error);
-          statusOac = true;
-        }
-      }
-    }
-
-    if (statusOac) {
-      for (let index = indexFrom; index < controllersData.length; index++) {
-        const obj = controllersData[index];
-        if (
-          obj.ecuName.toLowerCase().includes("vcu") ||
-          obj.ecuName.toLowerCase().includes("bms")
-        ) {
-          const navStatus = await navigateAndSetup(index, true);
-          if (navStatus) {
-            statusOac = true;
-            console.log("[OAC] ECU Index:", index, "statusOac:", statusOac);
-            break;
-          }
-          statusOac = false;
+        // Check if ECU supports offline analytics
+        if (!updatedECUData.isEEDumpOperation) {
+          console.log(
+            `[Controllers] ${updatedECUData.ecuName} does not support OA`
+          );
+        } else if (updatedECUData.isForceEachTimeOA) {
+          // Force collection if configured
+          console.log(
+            `[Controllers] ${updatedECUData.ecuName} force collection enabled`
+          );
+          needsCollection = true;
         } else {
-          statusOac = false;
+          // Check if collection is needed based on storage
+          needsCollection = isCollectionNeeded(vin, updatedECUData.ecuName);
         }
+
+        if (!needsCollection) {
+          console.log(
+            `[Controllers] No OA needed for ${updatedECUData.ecuName}`
+          );
+          return false;
+        }
+
+        setIsCollectionMode(true);
       }
 
-      if (controllersData.length <= indexFrom) {
-        statusOac = false;
+      // Update store with latest ECU data
+      const updatedController = setControllersUpdatedData(
+        controllersData,
+        ecuIndex,
+        updatedECUData as unknown as Partial<ControllerData>
+      );
+
+      if (updatedController) {
+        setSelectedEcu(updatedController as unknown as ECURecord);
       }
-      setOACStatus(statusOac);
-    }
 
-    if (!(oacStatus && statusOac)) {
-      // incase user is coming back or no oa needed, bring ecu list
-      setFullScreenLoading(false);
-    }
+      // Trigger config reset workflow
+      await resetECUConfig(ecuIndex);
 
-    console.log("[OAC] Status:", statusOac);
-    return statusOac;
+      return checkCollectionNeeds;
+    } catch (error) {
+      console.error("[Controllers] Setup ECU failed:", error);
+      setIsLoading(false);
+      return false;
+    }
   };
 
-  const navigateAndSetup = async (
-    index: number,
-    isEcuClickEvent = false
-  ): Promise<boolean> => {
-    let navCalled = false;
+  // ============================================
+  // Native Module Event Handlers
+  // ============================================
+
+  /**
+   * Handle updateUI events from native Bluetooth/USB modules
+   */
+  const handleNativeEvents = (response: {
+    name: string;
+    value?: string;
+  }): void => {
+    if (response.name !== "updateUI" || !response.value) {
+      return;
+    }
+
+    console.log(`[Controllers] Native event received: ${response.value}`);
 
     try {
-      console.log("[Controllers] Navigate and setup:", index);
-      isConfigResetInProcess = false;
-      setFullScreenLoading(true);
-      setSelectedEcuIndex(index);
-
-      BluetoothModule.UDSParameter(index);
-
-      const updatedData = await BluetoothModule.getUpdatedEcuRecords(index);
-
-      if (isEcuClickEvent) {
-        if (!updatedData.isEEDumpOperation) {
-          setOACStatus(false);
-          console.log("[Controllers] No OA for:", updatedData.ecuName);
-          return navCalled;
-        }
-
-        const isDataCollectedNeed = checkDatacollected(
-          vin,
-          updatedData.ecuName
-        );
-
-        if (isDataCollectedNeed || updatedData.isForceEachTimeOA) {
-          setOACStatus(updatedData.isEEDumpOperation);
-          navCalled = true;
-          console.log(
-            "[Controllers] Going to collect OA for:",
-            updatedData.ecuName
-          );
-        } else {
-          console.log("[Controllers] No OA needed for:", updatedData.ecuName);
-          return navCalled;
-        }
-      }
-
-      const selectedEcuUpdatedData = setControllersUpdatedData(
-        controllersData,
-        index,
-        updatedData as unknown as Partial<ControllerData>
+      const notification = handleJsonParse<UpdateUINotification>(
+        response.value
       );
 
-      if (selectedEcuUpdatedData) {
-        setSelectedEcu(selectedEcuUpdatedData as unknown as ECURecord);
-        console.log(
-          "[Controllers] Selected ECU updated:",
-          selectedEcuUpdatedData.ecuName
-        );
+      if (typeof notification !== "object") {
+        return;
       }
 
-      callResetConfig(index);
-    } catch (err) {
-      console.error("[Controllers] Navigate error:", err);
-    }
+      switch (notification.value) {
+        case "ConfigReset":
+          handleConfigResetEvent();
+          break;
 
-    return navCalled;
-  };
+        case "readEcuBasicnfo":
+          handleBasicInfoReadEvent();
+          break;
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex event handling from original implementation
-  const onResponse = (response: { name: string; value?: string }) => {
-    if (response.name === "updateUI") {
-      try {
-        if (!response.value) {
-          return;
-        }
-        const jsonData = handleJsonParse<UpdateUINotification>(response.value);
+        case "BIOError":
+          handleBasicInfoErrorEvent();
+          break;
 
-        if (typeof jsonData === "object" && jsonData?.value === "ConfigReset") {
-          console.log(
-            "[Controllers] Config reset, selectedEcuIndex:",
-            selectedEcuIndex
-          );
-          if (selectedEcuIndex !== null) {
-            readEcuBasicInfo(selectedEcuIndex);
-          }
-          updateIsDongleStuckInBoot(false);
-        } else if (
-          typeof jsonData === "object" &&
-          jsonData?.value === "readEcuBasicnfo"
-        ) {
-          isConfigResetInProcess = false;
-          setFullScreenLoading(false);
+        case "Dongle_InBoot":
+          handleDongleInBootEvent();
+          break;
 
-          console.log(
-            "[Controllers] ECU basic info, OAC:",
-            oacStatus,
-            "Index:",
-            selectedEcuIndex
-          );
-
-          if (selectedEcuIndex !== null) {
-            if (oacStatus) {
-              if (controllersData[selectedEcuIndex].isEEDumpOperation) {
-                router.push("/(main)/diagnostics/ecu-dump");
-                setOACStatus(false);
-              } else {
-                gotoOfflineAnalysticIfNotCollected(vin, selectedEcuIndex + 1);
-              }
-            } else {
-              // biome-ignore lint/suspicious/noExplicitAny: Route path type limitation in expo-router
-              router.push("/controllers/operations" as any);
-            }
-          }
-        } else if (
-          typeof jsonData === "object" &&
-          jsonData?.value === "BIOError"
-        ) {
-          setFullScreenLoading(false);
-        } else if (
-          typeof jsonData === "object" &&
-          jsonData?.value === "Dongle_InBoot"
-        ) {
-          // biome-ignore lint/suspicious/noExplicitAny: Route path type limitation in expo-router
-          router.push("/flashing/controller-flash" as any);
-        }
-      } catch (error) {
-        console.error("[Controllers] Response error:", error);
-        setFullScreenLoading(false);
+        default:
+          console.log(`[Controllers] Unhandled event: ${notification.value}`);
       }
+    } catch (error) {
+      console.error("[Controllers] Event handler error:", error);
+      setIsLoading(false);
     }
   };
 
-  const onBackPress = () => {
+  /**
+   * Config reset completed - read basic ECU info
+   */
+  const handleConfigResetEvent = (): void => {
+    console.log("[Controllers] Config reset completed");
+
+    if (selectedEcuIndex !== null) {
+      BluetoothModule.readEcuBasicnfo(selectedEcuIndex);
+    }
+
+    updateIsDongleStuckInBoot(false);
+  };
+
+  /**
+   * Basic info read completed - determine next navigation
+   */
+  const handleBasicInfoReadEvent = (): void => {
+    isConfigResetInProgress = false;
+    setIsLoading(false);
+
+    if (selectedEcuIndex === null) {
+      return;
+    }
+
+    const selectedECU = controllersData[selectedEcuIndex];
+
+    console.log(
+      `[Controllers] Basic info read - ECU: ${selectedECU.ecuName}, Collection mode: ${isCollectionMode}`
+    );
+
+    // In collection mode - navigate to dump screen or continue scanning
+    if (isCollectionMode) {
+      if (selectedECU.isEEDumpOperation) {
+        router.push("/(main)/diagnostics/ecu-dump");
+        setIsCollectionMode(false);
+      } else {
+        // Continue scanning next controllers
+        scanForCollectionNeeds(vin, selectedEcuIndex + 1);
+      }
+      return;
+    }
+
+    // Normal mode - navigate to operations screen
+    router.push("/controllers/operations");
+  };
+
+  /**
+   * Basic info operation error - stop loading
+   */
+  const handleBasicInfoErrorEvent = (): void => {
+    console.log("[Controllers] Basic info read error");
+    setIsLoading(false);
+  };
+
+  /**
+   * Dongle is stuck in boot mode - navigate to flashing screen
+   */
+  const handleDongleInBootEvent = (): void => {
+    console.log("[Controllers] Dongle in boot mode detected");
+    router.push("/flashing/controller-flash");
+  };
+
+  // ============================================
+  // User Actions
+  // ============================================
+
+  /**
+   * Handle back button press - show disconnect confirmation
+   */
+  const handleBackButton = (): boolean => {
+    setShowDisconnectOverlay(true);
+    return true;
+  };
+
+  /**
+   * Disconnect from device and reset state
+   */
+  const handleDisconnect = (): void => {
     if (dataTransferMode === "USB") {
-      console.log("[Controllers] USB back press");
       USBModule.resetUSBPermission();
     }
 
@@ -382,11 +427,13 @@ export default function ControllersScreen() {
     }
   };
 
-  const handleBackButton = () => {
-    setOverlayView(true);
-    return true;
-  };
+  // ============================================
+  // Effects
+  // ============================================
 
+  /**
+   * Initialize event emitter based on transfer mode
+   */
   useEffect(() => {
     const emitter =
       dataTransferMode === "USB"
@@ -396,38 +443,39 @@ export default function ControllersScreen() {
     setEventEmitter(emitter);
   }, [dataTransferMode]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Complex event handling from original implementation
+  /**
+   * Subscribe to native events from Bluetooth/USB modules
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dependencies are correct
   useEffect(() => {
     if (!eventEmitter) {
       return;
     }
 
-    const tempControllersList = controllersData.map((item) => ({
-      id: item.index.toString(),
-      name: item.ecuName,
-      image: cpu,
-      function: () => {
-        navigateAndSetup(item.index);
-      },
-      isActive: true,
-    }));
-
-    setControllersList(tempControllersList);
-
-    const updateUiListener = eventEmitter.addListener("updateUI", onResponse);
+    // Subscribe to native events
+    const subscription = eventEmitter.addListener(
+      "updateUI",
+      handleNativeEvents
+    );
 
     return () => {
-      updateUiListener.remove();
+      subscription.remove();
     };
-  }, [controllersData, eventEmitter]);
+  }, [eventEmitter, isCollectionMode, selectedEcuIndex]);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Complex event handling from original implementation
+  /**
+   * Initialize offline analytics check on mount
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: needed only on mount
   useEffect(() => {
-    gotoOfflineAnalysticIfNotCollected(vin);
+    initializeCollectionCheck(vin);
   }, []);
 
+  /**
+   * Setup hardware back button handler
+   */
   useFocusEffect(
-    // biome-ignore lint/correctness/useExhaustiveDependencies: Complex event handling from original implementation
+    // biome-ignore lint/correctness/useExhaustiveDependencies: needed only on mount
     useCallback(() => {
       const subscription = BackHandler.addEventListener(
         "hardwareBackPress",
@@ -455,18 +503,19 @@ export default function ControllersScreen() {
         </View>
       </ScrollView>
 
-      {/* Back Confirmation Overlay */}
+      {/* Disconnect Confirmation Overlay */}
+      {/* Todo: Remove this later. Keep it in the layout file */}
       <OverlayView
         description="The dongle will be disconnected and the device has to be manually turned off and turned on to connect again"
-        primaryButtonOnPress={onBackPress}
+        primaryButtonOnPress={handleDisconnect}
         primaryButtonText="Yes"
         title="Are you sure?"
-        visible={overlayView}
-        whiteButtonOnPress={() => setOverlayView(false)}
+        visible={showDisconnectOverlay}
+        whiteButtonOnPress={() => setShowDisconnectOverlay(false)}
         whiteButtonText="Cancel"
       />
 
-      <OverlayLoading loading={fullScreenLoading} />
+      <OverlayLoading loading={isLoading} />
     </View>
   );
 }

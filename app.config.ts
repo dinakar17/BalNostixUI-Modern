@@ -48,16 +48,6 @@ const config: ExpoConfig = {
       "./plugins/withNativeModules",
       { aarPath: "native-modules/android/libs/BalDongleLib-debug.aar" },
     ],
-    [
-      "react-native-ble-plx",
-      {
-        isBackgroundEnabled: true,
-        modes: ["peripheral", "central"],
-        bluetoothAlwaysPermission:
-          "Allow $(PRODUCT_NAME) to connect to Bluetooth devices for vehicle diagnostics",
-        neverForLocation: false, // Set to true only if you never use location from BLE
-      },
-    ],
     ["react-native-ble-manager", {}],
     [
       "@sentry/react-native/expo",

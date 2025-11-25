@@ -1,7 +1,7 @@
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
-import React, { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BackHandler,
   type EmitterSubscription,
@@ -34,6 +34,8 @@ const { BluetoothModule, USBModule } = NativeModules as {
   USBModule: USBModuleType;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 type FlashingState = {
   mainProgress: number;
   subProgress: number;
@@ -59,6 +61,11 @@ export default function WriteBinScreen() {
   const subscriptionRef = useRef<EmitterSubscription | null>(null);
   const isFlashingUpdatedRef = useRef(false);
 
+  // Toggle overlay visibility
+  const toggleOverlay = () => {
+    setIsVisible(!isVisible);
+  };
+
   const handleFailure = (message = "") => {
     setFailureMessage(message);
     setShowConfirmationModal(true);
@@ -69,9 +76,11 @@ export default function WriteBinScreen() {
     binNumber: string
   ) => {
     try {
-      // const moduleToUse =
-      //   dataTransferMode === "Bluetooth" ? BluetoothModule : USBModule;
-      const isValidBin = await BluetoothModule.validateBIN(binNumber);
+      // Use the correct module based on dataTransferMode
+      const moduleToUse =
+        dataTransferMode === "USB" ? USBModule : BluetoothModule;
+      // biome-ignore lint/suspicious/noExplicitAny: Module method validation
+      const isValidBin = await (moduleToUse as any).validateBIN(binNumber);
       setterFunction(isValidBin);
     } catch (error) {
       console.log("Check BIN error:", error);
@@ -85,9 +94,10 @@ export default function WriteBinScreen() {
         return;
       }
 
-      // const moduleToUse =
-      //   dataTransferMode === "Bluetooth" ? BluetoothModule : USBModule;
-      BluetoothModule.saveAppLog(selectedEcu.index);
+      const moduleToUse =
+        dataTransferMode === "USB" ? USBModule : BluetoothModule;
+      // biome-ignore lint/suspicious/noExplicitAny: Module method
+      (moduleToUse as any).saveAppLog?.(selectedEcu.index);
 
       await uploadAppLogs({
         serialNumber: userInfo.serial_number,
@@ -118,17 +128,17 @@ export default function WriteBinScreen() {
 
   const cleanup = useCallback(() => {
     const moduleToUse =
-      dataTransferMode === "Bluetooth" ? BluetoothModule : USBModule;
+      dataTransferMode === "USB" ? USBModule : BluetoothModule;
 
     if (subscriptionRef.current) {
       subscriptionRef.current.remove();
       subscriptionRef.current = null;
     }
 
-    // biome-ignore lint/suspicious/noExplicitAny: USBModule doesn't have these methods yet
-    (moduleToUse as any).unSubscribeToWriteBinUpdate();
-    // biome-ignore lint/suspicious/noExplicitAny: USBModule doesn't have this method yet
-    (moduleToUse as any).stopAllTimersFromReact();
+    // biome-ignore lint/suspicious/noExplicitAny: Module methods
+    (moduleToUse as any).unSubscribeToWriteBinUpdate?.();
+    // biome-ignore lint/suspicious/noExplicitAny: Module methods
+    (moduleToUse as any).stopAllTimersFromReact?.();
 
     isFlashingUpdatedRef.current = false;
     setIsVisible(false);
@@ -194,10 +204,12 @@ export default function WriteBinScreen() {
       }
 
       setFlashingState(flashResponse);
+    } else if (response.name === "bootFlash") {
+      console.log(response?.value);
     }
   };
 
-  const reProgram = () => {
+  const reProgram = async () => {
     if (!selectedEcu) {
       return;
     }
@@ -206,10 +218,10 @@ export default function WriteBinScreen() {
       setFailureMessage("");
 
       const moduleToUse =
-        dataTransferMode === "Bluetooth" ? BluetoothModule : USBModule;
+        dataTransferMode === "USB" ? USBModule : BluetoothModule;
       const eventEmitter = new NativeEventEmitter(moduleToUse);
 
-      // biome-ignore lint/suspicious/noExplicitAny: USBModule doesn't have this method yet
+      // biome-ignore lint/suspicious/noExplicitAny: Module method
       (moduleToUse as any).subscribeToWriteBinUpdate(
         selectedEcu.index,
         newValue
@@ -224,43 +236,62 @@ export default function WriteBinScreen() {
 
       // Timeout mechanism
       let totalTime = 0;
-      const checkTimeout = async () => {
-        while (isFlashingUpdatedRef.current) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-          if (totalTime > 9_000_000) {
-            isFlashingUpdatedRef.current = false;
-            setIsVisible(false);
-            setIsFlashing(false);
-            handleFailure("Timeout Please Try Again");
-            break;
-          }
-          totalTime += 10;
+      while (isFlashingUpdatedRef.current) {
+        await sleep(10);
+        if (totalTime > 9_000_000) {
+          isFlashingUpdatedRef.current = false;
+          setIsVisible(false);
+          setIsFlashing(false);
+          handleFailure("Timeout Please Try Again");
+          break;
         }
-      };
-      checkTimeout();
+        totalTime += 10;
+      }
     } catch (error) {
       console.log("reProgram error:", error);
       handleFailure("Failed to start BIN write");
     }
   };
 
-  const getPercentage = (input: number): number => {
-    const parsedNumber = Number.parseInt(String(input), 10);
+  const getPercentage = (input: number | string): number => {
+    const parsedNumber =
+      typeof input === "string" ? Number.parseInt(input, 10) : input;
     if (Number.isNaN(parsedNumber)) {
       return 0;
     }
     return Math.min(100, Math.max(0, parsedNumber));
   };
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const handleBackButton = () => {
-        if (isFlashing) {
-          return true;
-        }
-        return false;
+  // Cleanup on unmount
+  useEffect(() => {
+    if (isFlashing) {
+      return () => {
+        subscriptionRef.current?.remove();
+        const moduleToUse =
+          dataTransferMode === "USB" ? USBModule : BluetoothModule;
+        // biome-ignore lint/suspicious/noExplicitAny: Module methods
+        (moduleToUse as any).unSubscribeToWriteBinUpdate?.();
+        // biome-ignore lint/suspicious/noExplicitAny: Module methods
+        (moduleToUse as any).stopAllTimersFromReact?.();
       };
+    }
+  }, [isFlashing, dataTransferMode]);
 
+  // Initial validation on mount (commented in old code, but keeping for consistency)
+  useEffect(() => {
+    // checkBin(setIsValidBin, newValue);
+  }, []);
+
+  // Prevent back button during flashing
+  const handleBackButton = useCallback(() => {
+    if (isFlashing) {
+      return true;
+    }
+    return false;
+  }, [isFlashing]);
+
+  useFocusEffect(
+    useCallback(() => {
       const backHandler = BackHandler.addEventListener(
         "hardwareBackPress",
         handleBackButton
@@ -273,7 +304,7 @@ export default function WriteBinScreen() {
           cleanup();
         }
       };
-    }, [isFlashing, cleanup])
+    }, [isFlashing, handleBackButton, cleanup])
   );
 
   const FailureModal = () => {
@@ -284,12 +315,17 @@ export default function WriteBinScreen() {
 
     return (
       <View className="absolute inset-0 items-center justify-center bg-black/50">
-        <View className="mx-8 w-[83%] rounded-lg bg-white px-4 py-4">
-          <Image
-            className="h-10 w-10 self-center"
-            contentFit="contain"
-            source={infoIcon}
-          />
+        <View
+          className="rounded-lg bg-white px-4 py-4"
+          style={{ width: metrics.width / 1.2 }}
+        >
+          <View className="items-center">
+            <Image
+              className="h-10 w-10"
+              contentFit="contain"
+              source={infoIcon}
+            />
+          </View>
           <Text className="mt-4 text-center font-proximanova text-lg">
             {failureMessageUI}
           </Text>
@@ -335,64 +371,67 @@ export default function WriteBinScreen() {
                 description="RF Noise may lead to flashing failure, you may need to re-attempt flashing"
                 primaryButtonOnPress={() => {
                   reProgram();
-                  setIsVisible(true);
+                  toggleOverlay();
                 }}
                 primaryButtonText="FLASH BIN"
-                title="NOTE"
-                whiteButtonOnPress={() => {
+                secondaryButtonOnPress={() => {
                   router.back();
                 }}
-                whiteButtonText="CANCEL"
+                secondaryButtonText="CANCEL"
+                title="NOTE"
               />
             )}
 
           {!isFlashing && flashingState?.status !== "DONE" && !validBIN && (
-            <View className="w-[90%] rounded-xl bg-white py-8">
+            <View
+              className="rounded-lg bg-white py-8"
+              style={{ width: metrics.width / 1.1 }}
+            >
               <Text className="mx-4 mb-2 font-helveticaBold text-black text-xl">
                 Enter BIN
               </Text>
               <Text className="mx-4 mb-2 font-helveticaBold text-black text-sm">
                 In-valid BIN present, Please enter a valid BIN
               </Text>
-              <TextInput
-                className="mx-2 my-2 rounded-lg border border-[#d7dbe1] px-4 py-2 font-helveticaBold text-base text-black"
-                maxLength={16}
-                onChangeText={(value) => {
-                  const updateCaseValue = value.toUpperCase();
-                  if (updateCaseValue.length === 16) {
-                    checkBin(setNewBinStatus, updateCaseValue);
-                  } else {
-                    setNewBinStatus(false);
-                  }
-                  setNewValue(updateCaseValue);
-                }}
-                placeholder="Enter Value"
-                placeholderTextColor="gray"
-                style={{
-                  paddingVertical: Platform.OS === "ios" ? 16 : 8,
-                }}
-                value={newValue}
-              />
+              <View className="flex-row">
+                <TextInput
+                  className="mx-2 my-2 flex-1 rounded-lg border border-[#d7dbe1] px-4 font-helveticaBold text-base text-black"
+                  maxLength={16}
+                  onChangeText={(value) => {
+                    const updateCaseValue = value.toUpperCase();
+                    if (updateCaseValue.length === 16) {
+                      checkBin(setNewBinStatus, updateCaseValue);
+                    } else {
+                      setNewBinStatus(false);
+                    }
+                    setNewValue(updateCaseValue);
+                  }}
+                  placeholder="Enter Value"
+                  placeholderTextColor="gray"
+                  style={{
+                    paddingVertical: Platform.OS === "ios" ? 16 : 8,
+                  }}
+                  value={newValue}
+                />
+              </View>
               <View className="mx-3 mt-4 flex-row justify-center">
-                <View className="mr-2 flex-1">
-                  <PrimaryButton
-                    inactive={!newBinStatus}
-                    onPress={() => {
-                      setIsValidBin(true);
-                      reProgram();
-                      setIsVisible(true);
-                    }}
-                    text="FLASH"
-                  />
-                </View>
-                <View className="flex-1">
-                  <WhiteButton
-                    onPress={() => {
-                      router.back();
-                    }}
-                    text="CANCEL"
-                  />
-                </View>
+                <PrimaryButton
+                  className="mr-2 flex-1"
+                  inactive={!newBinStatus}
+                  onPress={() => {
+                    setIsValidBin(true);
+                    reProgram();
+                    toggleOverlay();
+                  }}
+                  text="FLASH"
+                />
+                <WhiteButton
+                  className="flex-1"
+                  onPress={() => {
+                    router.back();
+                  }}
+                  text="CANCEL"
+                />
               </View>
             </View>
           )}

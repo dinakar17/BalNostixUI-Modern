@@ -1,737 +1,668 @@
+/**
+ * ECU Dump Screen
+ *
+ * Handles offline analytics data collection from vehicle ECUs.
+ *
+ * Flow:
+ * 1. Clean up previous dump attempts
+ * 2. Subscribe to native dump events
+ * 3. Monitor collection progress with multiple timeout conditions
+ * 4. On success: Zip files and queue for upload
+ * 5. On failure: Save error logs and update status
+ */
+
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import dayjs from "dayjs";
-import { Directory, File, Paths } from "expo-file-system";
-import { Image } from "expo-image";
-import { router, useFocusEffect } from "expo-router";
+import { router } from "expo-router";
 import { useCallback, useRef, useState } from "react";
 import {
-  Alert,
   BackHandler,
   Dimensions,
-  type EmitterSubscription,
+  Image,
   NativeEventEmitter,
   NativeModules,
   Text,
   View,
 } from "react-native";
-import { useMMKVObject } from "react-native-mmkv";
 import { Bar as ProgressBar } from "react-native-progress";
-import { zip } from "react-native-zip-archive";
-
 import { useUploadEeDumpWithEcu } from "@/api/data-transfer";
-import { infoIcon } from "@/assets/images/index";
+import { infoIcon } from "@/assets/images";
 import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
-import { colors } from "@/constants/colors";
+import {
+  cleanupPreviousEEDump,
+  createZipAndQueueJob,
+  getPendingJobs,
+} from "@/lib/eedump-file-manager";
+import {
+  OACollectionStatus,
+  type OACollectionStatusCode,
+  updateCollectionStatus,
+} from "@/lib/offline-analytics";
+import { toastInfo } from "@/lib/toast";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 
+const { BluetoothModule } = NativeModules;
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-const { BluetoothModule } = NativeModules;
+// ============================================
+// Types
+// ============================================
 
-let todayDateTimeF: number;
-let isFlashingUpdated: boolean;
+type CollectionState = "WAITING" | "COLLECTING" | "COMPLETE";
 
-function sleep(ms: number) {
+type DumpProgress = {
+  state: CollectionState;
+  percent: number;
+  message: string;
+  uploadStatus?: "pending" | "success" | "failed";
+};
+
+type DumpResponse = {
+  status: boolean;
+  processStatus?: "upload" | "inProgress";
+  isReadyToUpload?: boolean;
+  EEDumpPercent?: number;
+  EEDumpPosOn?: number;
+  message?: string;
+};
+
+// ============================================
+// Constants
+// ============================================
+
+const TIMEOUT_CONFIG = {
+  /** Maximum total wait time (8 minutes) */
+  MAX_TOTAL_WAIT: 8 * 60 * 1000,
+  /** Absolute maximum wait time (10 minutes) */
+  ABSOLUTE_MAX_WAIT: 10 * 60 * 1000,
+  /** Polling interval for timeout checks */
+  POLL_INTERVAL: 10,
+} as const;
+
+// ============================================
+// Module-Level Variables
+// ============================================
+
+let isCollectionActive = false;
+let lastResponseTime = 0;
+
+// ============================================
+// Helper Functions
+// ============================================
+
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Status codes for OAC tracking
-const OACStatus = {
-  START: 0,
-  COMPLETE: 1,
-  LIB_ERROR: 2,
-  LIB_ERROR_NEG2: -2,
-  LIB_ERROR_NEG3: -3,
-  EXCEPTION: 3,
-  TIMEOUT_10MIN: 4,
-  NO_RESPONSE_5SEC: 5,
-  TIMEOUT_UI: 6,
-} as const;
+function clampPercent(value: number): number {
+  return Math.min(100, Math.max(0, value || 0));
+}
 
-type OACStatus = (typeof OACStatus)[keyof typeof OACStatus];
+function isNRCError(value: string): boolean {
+  return value.toLowerCase().includes("nrc");
+}
 
-type EDumpState = {
-  status: "WAITING" | "LOADING" | "DONE" | null;
-  message: string;
-  mainProgress: number;
-  responseMsg: string;
-  isUploadStatus?: boolean;
-};
-
-type EeDumpJob = {
-  filePath: string;
-  time: string;
-  vin_number: string;
-  ecu_name: string;
-  status: string;
-};
-
-type OACData = {
-  [vin: string]: {
-    [ecu: string]: {
-      oaDate: string;
-      oaDataStatus: number;
-    };
-  };
-};
+// ============================================
+// Main Component
+// ============================================
 
 export default function ECUDumpScreen() {
-  // Zustand stores
+  // ============================================
+  // Store & Hooks
+  // ============================================
+
+  const navigation = useNavigation();
   const { selectedEcu, vin, isDonglePhase3State, updateDongleToDisconnected } =
     useDataTransferStore();
-  const currentVIN = vin || selectedEcu?.vinNumber || "";
+  const { trigger: uploadDumps } = useUploadEeDumpWithEcu();
 
-  // MMKV storage
-  const [jsonDataOAC, setJsonDataOAC] = useMMKVObject<OACData>("jsonDataOAC");
-  const [eeDumpJobs, setEeDumpJobs] = useMMKVObject<EeDumpJob[]>("eeDumpJobs");
-
-  // Upload hook
-  const { trigger: uploadEeDump } = useUploadEeDumpWithEcu();
-
+  // ============================================
   // State
-  const [eDumpState, setEDumpState] = useState<EDumpState>({
-    status: null,
-    message: "",
-    mainProgress: 0,
-    responseMsg: "",
+  // ============================================
+
+  const [progress, setProgress] = useState<DumpProgress>({
+    state: "WAITING",
+    percent: 0,
+    message: "Initializing...",
   });
-  const [showConfirmationModal, setShowConfirmationModal] = useState(false);
-  const [preResMsg, setPreResMsg] = useState("");
+  const [showFailureModal, setShowFailureModal] = useState(false);
+  const [failureMessage, setFailureMessage] = useState("");
 
+  // ============================================
   // Refs
-  const totalWaitTime5IntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const totalWaitTimeIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const ecuCustomTimeOutRef = useRef<NodeJS.Timeout | null>(null);
-  const subscriptionRef = useRef<EmitterSubscription | null>(null);
-  const startTimeRef = useRef<dayjs.Dayjs | null>(null);
+  // ============================================
 
-  // Save OAC status to MMKV
-  const OfflineAnalysticCollectedSaveDetails = (
-    vinNumber: string,
-    status: OACStatus
-  ) => {
-    if (!(vinNumber && selectedEcu)) {
+  const collectionStartTimeRef = useRef<dayjs.Dayjs | null>(null);
+  const lastProgressMessageRef = useRef("");
+
+  // ============================================
+  // Collection Status Updates
+  // ============================================
+
+  /**
+   * Save collection status to persistent storage
+   */
+  const saveCollectionStatus = (status: OACollectionStatusCode): void => {
+    if (!(vin && selectedEcu)) {
+      console.warn("[ECUDump] Missing VIN or ECU for status update");
       return;
     }
 
-    const currentDate = dayjs().format("YYYY-MM-DD");
-    const updatedOACData = { ...(jsonDataOAC || {}) };
-
-    if (!updatedOACData[vinNumber]) {
-      updatedOACData[vinNumber] = {};
-    }
-
-    updatedOACData[vinNumber][selectedEcu.ecuName] = {
-      oaDate: currentDate,
-      oaDataStatus: status,
-    };
-
-    setJsonDataOAC(updatedOACData);
+    updateCollectionStatus(vin, selectedEcu.ecuName, status);
   };
 
-  // Delete previous EEDUMP folder using modern API
-  const deleteEEDumpPreviousTry = () => {
+  // ============================================
+  // Post-Collection Operations
+  // ============================================
+
+  /**
+   * Handle post-collection tasks: cleanup, zip, and upload
+   */
+  const finalizeCollection = async (
+    status: "Success" | "Failure"
+  ): Promise<void> => {
     try {
-      const documentPath = Paths.document.uri.replace("file://", "");
-      const eeDumpPath = documentPath.replace("files", "EEDUMP");
-      const eeDumpDir = new Directory(`file://${eeDumpPath}`);
-
-      if (eeDumpDir.exists) {
-        eeDumpDir.delete();
-        console.log("Previous EEDUMP deleted");
-      }
-    } catch (error) {
-      console.log("Delete EEDUMP error:", error);
-    }
-  };
-
-  // Create zip file job
-  const createJob = async () => {
-    try {
-      const timestamp = dayjs().valueOf();
-      const fileName = `${timestamp}_${currentVIN}.zip`;
-
-      // Get document path and construct EEDUMP path
-      const documentPath = Paths.document.uri.replace("file://", "");
-      const eeDumpPath = documentPath.replace("files", "EEDUMP");
-
-      // Construct jobs directory path
-      const jobsDirPath = `${documentPath}/EE_DUMP_Jobs`;
-      const jobsDir = new Directory(`file://${jobsDirPath}`);
-
-      // Ensure EE_DUMP_Jobs directory exists
-      if (!jobsDir.exists) {
-        jobsDir.create();
-        console.log(`[EDS:CreateJob] Created jobs directory: ${jobsDir.uri}`);
-      }
-
-      const targetPath = `${jobsDirPath}/${fileName}`;
-
-      // Create zip (react-native-zip-archive uses plain paths without file://)
-      console.log(
-        `[EDS:CreateJob] Creating zip: ${fileName} from ${eeDumpPath}`
-      );
-      await zip(eeDumpPath, targetPath);
-
-      // Clean up source directory after zipping
-      const sourceDir = new Directory(`file://${eeDumpPath}`);
-      if (sourceDir.exists) {
-        const items = sourceDir.list();
-        for (const item of items) {
-          if (item instanceof File) {
-            item.delete();
-            console.log(`[EDS:CreateJob] Deleted: ${item.name}`);
-          }
-        }
-      }
-
-      // Add to job queue
-      const newJob: EeDumpJob = {
-        filePath: targetPath,
-        time: dayjs().format("YYYY-MM-DD_HH:mm:ss"),
-        vin_number: currentVIN || "",
-        ecu_name: selectedEcu?.ecuName || "",
-        status: "pending",
-      };
-
-      const updatedJobs = [...(eeDumpJobs || []), newJob];
-      setEeDumpJobs(updatedJobs);
-
-      console.log(
-        `[EDS:CreateJob] Job queued - VIN: ${currentVIN}, ECU: ${selectedEcu?.ecuName}`
-      );
-
-      // Trigger upload immediately after adding job (matches original ECUDumpScreen.js)
-      await uploadEeDump({}).catch((error) => {
-        console.error("[EDS:CreateJob] Upload failed:", error);
-      });
-
-      return true;
-    } catch (error) {
-      console.log("Create job error:", error);
-      return false;
-    }
-  };
-
-  // Post success flash - upload and cleanup
-  const postSucessFlash = async () => {
-    try {
-      if (subscriptionRef.current) {
-        subscriptionRef.current.remove();
-        subscriptionRef.current = null;
-      }
       BluetoothModule.unsubscribeToDump();
       BluetoothModule.stopAllTimersFromReact();
       BluetoothModule.saveAppLog(selectedEcu?.index || 0);
 
-      // Check if EEDUMP folder exists and has files
-      const documentPath = Paths.document.uri.replace("file://", "");
-      const eeDumpPath = documentPath.replace("files", "EEDUMP");
+      // Create zip and queue for upload
+      const zipCreated = await createZipAndQueueJob(
+        vin || "",
+        selectedEcu?.ecuName || "",
+        status
+      );
 
-      // Try to access EEDUMP directory
-      let filesExist = false;
-      try {
-        const eeDumpUri = `file://${eeDumpPath}`;
-        const eeDumpDir = new Directory(eeDumpUri);
-
-        if (eeDumpDir.exists) {
-          const items = eeDumpDir.list();
-          filesExist = items.length > 0;
-          console.log(`[EDS:PostSuccess] EEDUMP has ${items.length} file(s)`);
-        } else {
-          console.log("[EDS:PostSuccess] EEDUMP folder does not exist");
-        }
-      } catch (error) {
-        console.log("[EDS:PostSuccess] Error checking EEDUMP:", error);
+      if (!zipCreated) {
+        console.log("[ECUDump] No files to upload");
+        setProgress((prev) => ({
+          ...prev,
+          uploadStatus: "failed",
+          message: "No files collected. Please try again.",
+        }));
+        return;
       }
 
-      if (filesExist) {
-        await createJob();
+      // Trigger upload
+      await uploadDumps({});
 
-        // Check remaining jobs after upload attempt (re-fetch from MMKV)
-        const failJobMap = eeDumpJobs;
-        if (failJobMap) {
-          if (failJobMap.length === 0) {
-            setEDumpState((prev) => ({
-              ...prev,
-              isUploadStatus: true,
-              message:
-                "All files have been successfully uploaded to the server.",
-            }));
-          } else {
-            console.log(
-              `[EDS:Upload] ${failJobMap.length} job(s) remaining in queue`
-            );
-            setEDumpState((prev) => ({
-              ...prev,
-              isUploadStatus: false,
-              message:
-                "Failed to Upload Offline Analystics Data, \nPlease check your Internet Connectivity.\n\nTry again later",
-            }));
-          }
-        } else {
-          setEDumpState((prev) => ({
-            ...prev,
-            isUploadStatus: false,
-            message:
-              "No File to Upload. Please try collecting offline analytics data.",
-          }));
-        }
-      } else {
-        setEDumpState((prev) => ({
+      // Check remaining jobs
+      const remainingJobs = getPendingJobs();
+
+      if (remainingJobs.length === 0) {
+        console.log("[ECUDump] All files uploaded successfully");
+        setProgress((prev) => ({
           ...prev,
-          isUploadStatus: false,
+          uploadStatus: "success",
+          message: "All files have been successfully uploaded to the server.",
+        }));
+      } else {
+        console.log(`[ECUDump] ${remainingJobs.length} job(s) pending upload`);
+        setProgress((prev) => ({
+          ...prev,
+          uploadStatus: "failed",
           message:
-            "No File to Upload. Please try collecting offline analytics data.",
+            "Failed to upload offline analytics data.\nPlease check your internet connectivity and try again later.",
         }));
       }
     } catch (error) {
-      console.log("Post success flash error:", error);
-      setEDumpState((prev) => ({
+      console.error("[ECUDump] Finalize collection error:", error);
+      setProgress((prev) => ({
         ...prev,
-        isUploadStatus: false,
+        uploadStatus: "failed",
         message:
-          "Failed to Upload Offline Analystics Data.\nPlease move to good connectivity area \n\nPlease Try again later",
+          "Failed to upload offline analytics data.\nPlease move to an area with better connectivity and try again later.",
       }));
     }
   };
 
-  // Get percentage for progress bar
-  const getPercentage = (value: number): number => {
-    if (!value) {
-      return 0;
-    }
-    return Math.min(100, Math.max(0, value));
-  };
+  // ============================================
+  // Failure Handling
+  // ============================================
 
-  // Handle eeDump response
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex response handling required for dump protocol
-  const onResponse = (response: { name: string; value: string }) => {
-    if (response.name === "eeDump") {
-      try {
-        todayDateTimeF = dayjs().valueOf(); // Update last response time using dayjs
+  /**
+   * Handle collection failure with cleanup and status update
+   */
+  const handleCollectionFailure = async (
+    message: string,
+    statusCode: OACollectionStatusCode
+  ): Promise<void> => {
+    console.log(`[ECUDump] Collection failed - Status: ${statusCode}`);
 
-        if (response.value[0] === "{") {
-          const eeDumpResponse = JSON.parse(response.value);
+    isCollectionActive = false;
 
-          if (eeDumpResponse.status === true) {
-            if (eeDumpResponse.processStatus === "upload") {
-              if (eeDumpResponse.isReadyToUpload === true) {
-                // Success - collection complete
-                setEDumpState({
-                  mainProgress: eeDumpResponse.EEDumpPercent,
-                  message: "Completed",
-                  status: "DONE",
-                  responseMsg: "",
-                  isUploadStatus: undefined,
-                });
+    // Save failure status
+    saveCollectionStatus(statusCode);
 
-                OfflineAnalysticCollectedSaveDetails(
-                  currentVIN || "",
-                  OACStatus.COMPLETE
-                );
+    // Finalize and attempt upload of error logs
+    await finalizeCollection("Failure");
 
-                postSucessFlash();
-                isFlashingUpdated = false;
-                return;
-              }
-              handleFailure(eeDumpResponse.message || "Upload failed");
-            } else {
-              // In progress update
-              if (eeDumpResponse?.message?.length !== 0) {
-                // Avoid duplicate updates
-                const currentMsg = `${eeDumpResponse.EEDumpPercent},${eeDumpResponse.message}`;
-                if (
-                  preResMsg === currentMsg ||
-                  eeDumpResponse.message.startsWith("Collected the data ")
-                ) {
-                  return;
-                }
+    // Clean up dump folder
+    cleanupPreviousEEDump();
 
-                setPreResMsg(currentMsg);
-                setEDumpState({
-                  mainProgress: eeDumpResponse.EEDumpPercent,
-                  message: eeDumpResponse.message,
-                  status: "LOADING",
-                  responseMsg: "",
-                });
-              }
-              return;
-            }
-          } else {
-            // Status is false - error from lib
-            const statusCode =
-              eeDumpResponse.EEDumpPosOn === -2
-                ? OACStatus.LIB_ERROR_NEG2
-                : OACStatus.LIB_ERROR;
-            OfflineAnalysticCollectedSaveDetails(currentVIN || "", statusCode);
-            handleFailure(eeDumpResponse.message || "Collection failed");
-          }
-        } else if (response.value.toLowerCase().includes("nrc")) {
-          // NRC error
-          OfflineAnalysticCollectedSaveDetails(
-            currentVIN || "",
-            OACStatus.LIB_ERROR
-          );
-          handleFailure(response.value);
-        }
-      } catch (error) {
-        console.log("onResponse error:", error);
-        OfflineAnalysticCollectedSaveDetails(
-          currentVIN || "",
-          OACStatus.EXCEPTION
-        );
-        handleFailure(
-          "There is an issue collecting data. Please toggle the ignition and try again."
-        );
-      }
-    }
-  };
+    // Show failure modal
+    setFailureMessage(message);
+    setShowFailureModal(true);
 
-  // Handle failure scenarios
-  const handleFailure = async (
-    failureMessage: string,
-    status: OACStatus = OACStatus.EXCEPTION
-  ) => {
-    if (totalWaitTimeIntervalRef.current) {
-      clearInterval(totalWaitTimeIntervalRef.current);
-      totalWaitTimeIntervalRef.current = null;
-    }
-    if (totalWaitTime5IntervalRef.current) {
-      clearInterval(totalWaitTime5IntervalRef.current);
-      totalWaitTime5IntervalRef.current = null;
-    }
-    if (ecuCustomTimeOutRef.current) {
-      clearTimeout(ecuCustomTimeOutRef.current);
-      ecuCustomTimeOutRef.current = null;
-    }
-    if (timerIntervalRef.current) {
-      clearInterval(timerIntervalRef.current);
-      timerIntervalRef.current = null;
-    }
-
-    if (subscriptionRef.current) {
-      subscriptionRef.current.remove();
-      subscriptionRef.current = null;
-    }
-
-    BluetoothModule.unsubscribeToDump();
-    BluetoothModule.stopAllTimersFromReact();
-    isFlashingUpdated = false;
-
-    OfflineAnalysticCollectedSaveDetails(currentVIN || "", status);
-
-    // Upload failure logs
-    await postSucessFlash();
-
-    deleteEEDumpPreviousTry();
-
-    setEDumpState({
-      status: "DONE",
-      message: failureMessage,
-      mainProgress: 0,
-      responseMsg: "",
-      isUploadStatus: false,
+    setProgress({
+      state: "COMPLETE",
+      percent: 0,
+      message,
+      uploadStatus: "failed",
     });
-
-    setShowConfirmationModal(true);
   };
 
-  // Main reprogram function
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex timeout and polling logic required
-  const reProgram = async () => {
+  // ============================================
+  // Dump Response Handler
+  // ============================================
+
+  /**
+   * Handle eeDump events from native module
+   */
+  const handleDumpResponse = (response: {
+    name: string;
+    value: string;
+  }): void => {
+    if (response.name !== "eeDump") {
+      return;
+    }
+
     try {
-      deleteEEDumpPreviousTry();
+      // Update last response time for timeout tracking
+      lastResponseTime = dayjs().valueOf();
 
-      OfflineAnalysticCollectedSaveDetails(currentVIN || "", OACStatus.START);
+      // Check for NRC errors
+      if (isNRCError(response.value)) {
+        console.log(`[ECUDump] NRC Error: ${response.value}`);
+        handleCollectionFailure(
+          response.value,
+          OACollectionStatus.LIBRARY_ERROR
+        );
+        return;
+      }
 
-      // Subscribe to dump with just the index parameter like original
-      BluetoothModule.subscribeToDump(selectedEcu?.index || 0);
+      // Parse JSON response
+      if (response.value[0] !== "{") {
+        return;
+      }
 
-      const eventEmitter = new NativeEventEmitter(BluetoothModule);
-      subscriptionRef.current = eventEmitter.addListener("eeDump", onResponse);
+      const dumpData = JSON.parse(response.value) as DumpResponse;
 
-      setEDumpState({
-        status: "LOADING",
-        message: "Starting Offline Analytics Collection...",
-        mainProgress: 0,
-        responseMsg: "",
-      });
+      // Handle failure response
+      if (!dumpData.status) {
+        const statusCode =
+          dumpData.EEDumpPosOn === -2
+            ? OACollectionStatus.LIBRARY_ERROR_NEG2
+            : OACollectionStatus.LIBRARY_ERROR;
 
-      isFlashingUpdated = true;
-      let totalTime = 0;
-      todayDateTimeF = dayjs().valueOf();
-      startTimeRef.current = dayjs();
+        handleCollectionFailure(
+          dumpData.message || "Collection failed",
+          statusCode
+        );
+        return;
+      }
 
-      const totalWaitTime = 8 * 60 * 1000; // 8 minutes
-      const totalWaitTime5 = 10 * 60 * 1000; // 10 minutes
-      const ecuCustomTimeOut = (selectedEcu?.dynamicWaitTime || 480) * 1000;
+      // Handle upload ready
+      if (dumpData.processStatus === "upload") {
+        if (dumpData.isReadyToUpload) {
+          console.log("[ECUDump] Collection complete, ready for upload");
 
-      // Main polling loop like original
-      while (isFlashingUpdated) {
-        await sleep(10);
+          isCollectionActive = false;
 
-        const curtime = dayjs().valueOf();
-        const diff = curtime - todayDateTimeF; // Time since last response
-        const startbe = startTimeRef.current?.valueOf() || 0;
-        const diffv = curtime - startbe; // Time since start
+          setProgress({
+            state: "COMPLETE",
+            percent: 100,
+            message: "Completed",
+            uploadStatus: "pending",
+          });
 
-        if (
-          diff > ecuCustomTimeOut ||
-          diffv > totalWaitTime5 ||
-          totalTime > totalWaitTime
-        ) {
-          console.log(
-            "Timeout - diff:",
-            diff,
-            "diffv:",
-            diffv,
-            "startbe:",
-            startbe,
-            "now:",
-            curtime,
-            "lastres:",
-            todayDateTimeF,
-            "ecuCustomTimeOut:",
-            ecuCustomTimeOut,
-            "totalwait:",
-            totalWaitTime,
-            "totalWaitTime5:",
-            totalWaitTime5
-          );
-
-          isFlashingUpdated = false;
-
-          let failstatus: OACStatus = OACStatus.TIMEOUT_10MIN;
-          let msgTimeout =
-            "\nTimeout occurred after 10 minutes or more. \nPlease check the BT dongle or toggle the ignition, \nthen try again.";
-
-          if (diff > ecuCustomTimeOut) {
-            failstatus = OACStatus.NO_RESPONSE_5SEC;
-            msgTimeout = `\nTimeout because ${selectedEcu?.ecuName || "ECU"} not responded for ${ecuCustomTimeOut}ms,\nPlease check btdongle or Toggle the ignition please and \nPlease Try Again.`;
-          }
-
-          if (diffv > totalWaitTime5) {
-            failstatus = OACStatus.TIMEOUT_UI;
-            msgTimeout =
-              "\nTimeout after waiting for 10 minutes.\nPlease check the BT dongle or toggle the ignition, \nthen try again.";
-          }
-
-          OfflineAnalysticCollectedSaveDetails(currentVIN || "", failstatus);
-          handleFailure(msgTimeout, failstatus);
-          // biome-ignore lint/suspicious/noExplicitAny: Native module method not fully typed
-          (BluetoothModule as any).saveAppLog(selectedEcu?.index || 0);
+          saveCollectionStatus(OACollectionStatus.SUCCESS);
+          finalizeCollection("Success");
         } else {
-          totalTime += 10;
+          handleCollectionFailure(
+            dumpData.message || "Upload not ready",
+            OACollectionStatus.LIBRARY_ERROR
+          );
         }
+        return;
+      }
+
+      // Handle progress updates
+      if (dumpData.message && dumpData.message.length > 0) {
+        const progressKey = `${dumpData.EEDumpPercent},${dumpData.message}`;
+
+        // Skip duplicate progress messages
+        if (
+          lastProgressMessageRef.current === progressKey ||
+          dumpData.message.startsWith("Collected the data")
+        ) {
+          return;
+        }
+
+        lastProgressMessageRef.current = progressKey;
+
+        console.log(
+          `[ECUDump] Progress: ${dumpData.EEDumpPercent}% - ${dumpData.message}`
+        );
+
+        setProgress({
+          state: "COLLECTING",
+          percent: dumpData.EEDumpPercent || 0,
+          message: dumpData.message,
+        });
       }
     } catch (error) {
-      console.log("reProgram error:", error);
-      OfflineAnalysticCollectedSaveDetails(
-        currentVIN || "",
-        OACStatus.EXCEPTION
-      );
-      handleFailure(
+      console.error("[ECUDump] Response handler error:", error);
+      handleCollectionFailure(
         "There is an issue collecting data. Please toggle the ignition and try again.",
-        OACStatus.EXCEPTION
+        OACollectionStatus.EXCEPTION
       );
     }
   };
 
-  const FailureModal = () => (
-    <View className="absolute inset-0 items-center justify-center bg-black/50">
-      <View
-        className="items-center rounded-lg bg-white px-4 py-4"
-        style={{ width: SCREEN_WIDTH / 1.2 }}
-      >
-        <View className="items-center">
-          <Image className="h-10 w-10" source={infoIcon} />
-        </View>
-        <Text
-          className="mt-4 mb-4 text-center font-bold text-lg"
-          style={{ marginHorizontal: 16 }}
-        >
-          {eDumpState.message}
-        </Text>
-        <View className="mt-6">
-          <PrimaryButton
-            onPress={() => {
-              setShowConfirmationModal(false);
-              router.back();
-            }}
-            text="OKAY"
-          />
-        </View>
-      </View>
-    </View>
-  );
+  // ============================================
+  // Timeout Monitoring
+  // ============================================
 
-  useFocusEffect(
-    // biome-ignore lint/correctness/useExhaustiveDependencies: Functions intentionally recreated on each render to access latest state
-    useCallback(() => {
-      const handleBackPress = () => {
-        if (eDumpState.status === "LOADING") {
-          Alert.alert(
-            "Cancel Collection",
-            "Are you sure you want to cancel the ongoing collection?",
-            [
-              { text: "No", style: "cancel" },
-              {
-                text: "Yes",
-                onPress: () => {
-                  handleFailure(
-                    "Collection cancelled by user",
-                    OACStatus.EXCEPTION
-                  );
-                  router.back();
-                },
-              },
-            ]
-          );
-          return true;
+  /**
+   * Monitor collection progress with multiple timeout conditions
+   */
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex timeout monitoring logic required
+  const monitorTimeouts = async (): Promise<void> => {
+    let elapsedTime = 0;
+    const ecuTimeout = (selectedEcu?.dynamicWaitTime || 480) * 1000;
+
+    console.log(
+      `[ECUDump] Timeout monitoring started - ECU timeout: ${ecuTimeout}ms, Max: ${TIMEOUT_CONFIG.ABSOLUTE_MAX_WAIT}ms`
+    );
+
+    while (isCollectionActive) {
+      await sleep(TIMEOUT_CONFIG.POLL_INTERVAL);
+
+      const now = dayjs().valueOf();
+      const timeSinceLastResponse = now - lastResponseTime;
+      const totalElapsed =
+        now - (collectionStartTimeRef.current?.valueOf() || now);
+
+      // Check timeout conditions
+      if (
+        timeSinceLastResponse > ecuTimeout ||
+        totalElapsed > TIMEOUT_CONFIG.ABSOLUTE_MAX_WAIT ||
+        elapsedTime > TIMEOUT_CONFIG.MAX_TOTAL_WAIT
+      ) {
+        console.log(
+          `[ECUDump] Timeout detected - Since last response: ${timeSinceLastResponse}ms, Total: ${totalElapsed}ms`
+        );
+
+        isCollectionActive = false;
+
+        // Determine timeout type and status
+        let statusCode: OACollectionStatusCode;
+        let message: string;
+
+        if (timeSinceLastResponse > ecuTimeout) {
+          statusCode = OACollectionStatus.TIMEOUT_NO_RESPONSE;
+          message = `Timeout: ${selectedEcu?.ecuName || "ECU"} did not respond for ${ecuTimeout}ms.\nPlease check the BT dongle or toggle the ignition and try again.`;
+        } else if (totalElapsed > TIMEOUT_CONFIG.ABSOLUTE_MAX_WAIT) {
+          statusCode = OACollectionStatus.TIMEOUT_MAX;
+          message =
+            "Timeout after waiting for 10 minutes.\nPlease check the BT dongle or toggle the ignition and try again.";
+        } else {
+          statusCode = OACollectionStatus.TIMEOUT_GENERAL;
+          message =
+            "Timeout occurred after 10 minutes or more.\nPlease check the BT dongle or toggle the ignition and try again.";
         }
-        return false;
-      };
+
+        handleCollectionFailure(message, statusCode);
+        BluetoothModule.saveAppLog(selectedEcu?.index || 0);
+        break;
+      }
+
+      elapsedTime += TIMEOUT_CONFIG.POLL_INTERVAL;
+    }
+  };
+
+  // ============================================
+  // Main Collection Function
+  // ============================================
+
+  /**
+   * Start offline analytics collection process
+   */
+  const startCollection = () => {
+    try {
+      console.log(
+        `[ECUDump] Starting collection - ECU: ${selectedEcu?.ecuName}, VIN: ${vin}`
+      );
+
+      // Clean up previous attempts
+      cleanupPreviousEEDump();
+
+      // Mark collection as started
+      saveCollectionStatus(OACollectionStatus.STARTED);
+
+      // Subscribe to dump events
+      BluetoothModule.subscribeToDump(selectedEcu?.index || 0);
+
+      // Initialize state
+      isCollectionActive = true;
+      lastResponseTime = dayjs().valueOf();
+      collectionStartTimeRef.current = dayjs();
+
+      setProgress({
+        state: "COLLECTING",
+        percent: 0,
+        message: "Starting offline analytics collection...",
+      });
+
+      // Start timeout monitoring
+      monitorTimeouts();
+    } catch (error) {
+      console.error("[ECUDump] Start collection error:", error);
+      handleCollectionFailure(
+        "Failed to start collection. Please try again.",
+        OACollectionStatus.EXCEPTION
+      );
+    }
+  };
+
+  // ============================================
+  // Navigation Guards
+  // ============================================
+
+  /**
+   * Check if collection is currently active
+   */
+  const checkIsCollecting = (): boolean => isCollectionActive;
+
+  /**
+   * Prevent back navigation during active collection
+   */
+  const handleBackPress = (): boolean => {
+    if (checkIsCollecting()) {
+      toastInfo(
+        "Collection in Progress",
+        "Please wait for the offline analytics collection to complete"
+      );
+      return true;
+    }
+    return false;
+  };
+
+  /**
+   * Handle completion button press
+   */
+  const handleComplete = (): void => {
+    if (showFailureModal) {
+      setShowFailureModal(false);
+    }
+    router.back();
+  };
+
+  // ============================================
+  // Effects
+  // ============================================
+
+  /**
+   * Start collection on mount and cleanup on unmount
+   */
+  useFocusEffect(
+    // biome-ignore lint/correctness/useExhaustiveDependencies: Effect only needs to run on mount/unmount
+    useCallback(() => {
+      // Create event emitter and subscribe to dump events
+      const eventEmitter = new NativeEventEmitter(BluetoothModule);
+      const subscription = eventEmitter.addListener(
+        "eeDump",
+        handleDumpResponse
+      );
+
+      startCollection();
 
       const backHandler = BackHandler.addEventListener(
         "hardwareBackPress",
         handleBackPress
       );
 
-      reProgram();
+      const unsubscribeBeforeRemove = navigation.addListener(
+        "beforeRemove",
+        (e) => {
+          if (checkIsCollecting()) {
+            e.preventDefault();
+            toastInfo(
+              "Collection in Progress",
+              "Please wait for the offline analytics collection to complete"
+            );
+          }
+        }
+      );
 
       return () => {
         backHandler.remove();
+        unsubscribeBeforeRemove();
+        subscription.remove();
 
-        if (totalWaitTimeIntervalRef.current) {
-          clearInterval(totalWaitTimeIntervalRef.current);
-        }
-        if (totalWaitTime5IntervalRef.current) {
-          clearInterval(totalWaitTime5IntervalRef.current);
-        }
-        if (ecuCustomTimeOutRef.current) {
-          clearTimeout(ecuCustomTimeOutRef.current);
-        }
-        if (timerIntervalRef.current) {
-          clearInterval(timerIntervalRef.current);
-        }
-        if (subscriptionRef.current) {
-          subscriptionRef.current.remove();
-        }
+        BluetoothModule.unsubscribeToDump();
+        BluetoothModule.stopAllTimersFromReact();
       };
-    }, [])
+    }, [navigation])
+  );
+
+  // ============================================
+  // Render
+  // ============================================
+
+  const FailureModal = () => (
+    <View className="absolute inset-0 items-center justify-center">
+      <View
+        className="items-center rounded-lg bg-white px-4 py-4"
+        style={{ width: SCREEN_WIDTH / 1.2 }}
+      >
+        <Image className="h-10 w-10" source={infoIcon} />
+        <Text className="mx-4 mt-4 mb-4 text-center font-bold text-lg">
+          {failureMessage}
+        </Text>
+        <View className="mt-6">
+          <PrimaryButton onPress={handleComplete} text="OKAY" />
+        </View>
+      </View>
+    </View>
   );
 
   return (
     <>
       <CustomHeader
-        leftButtonFunction={() => null}
+        leftButtonFunction={() => {
+          if (checkIsCollecting()) {
+            toastInfo(
+              "Collection in Progress",
+              "Please wait for the offline analytics collection to complete"
+            );
+          } else {
+            router.back();
+          }
+        }}
         leftButtonType="back"
         onDisconnect={updateDongleToDisconnected}
         renderLeftButton={true}
-        renderRightButton={isDonglePhase3State}
+        renderRightButton={isDonglePhase3State && !checkIsCollecting()}
         rightButtonType="menu"
         title="CONTROLLER"
       />
 
       <View style={{ flex: 1 }}>
         {/* ECU Name Header */}
-        <View>
-          <Text
-            className="text-center font-bold text-xl"
-            style={{ marginVertical: 16 }}
-          >
-            {selectedEcu?.ecuName || ""}
-          </Text>
-        </View>
+        <Text className="my-4 text-center font-bold text-xl">
+          {selectedEcu?.ecuName || ""}
+        </Text>
 
-        {/* Main Content Area */}
+        {/* Main Content */}
         <View
-          className="flex-1 items-center justify-center"
-          style={{ backgroundColor: "#f3f3f3", marginHorizontal: 16 }}
+          className="mx-4 flex-1 items-center justify-center"
+          style={{ backgroundColor: "#f3f3f3" }}
         >
-          {/* Loading State */}
-          {eDumpState.status === "LOADING" && (
+          {/* Collecting State */}
+          {progress.state === "COLLECTING" && (
             <View
-              className="items-center justify-center rounded-lg bg-white"
+              className="items-center justify-center rounded-lg bg-white p-4"
               style={{
                 width: SCREEN_WIDTH - 64,
                 minHeight: 200,
-                paddingHorizontal: 16,
-                paddingVertical: 16,
                 borderWidth: 0.4,
-                borderRadius: 6,
                 top: -34,
+                marginHorizontal: 32,
               }}
             >
-              <View style={{ width: "100%" }}>
-                <Text className="font-bold text-lg" style={{ marginBottom: 8 }}>
-                  {eDumpState.message}
+              <Text className="mb-2 font-bold text-lg">{progress.message}</Text>
+              <Text className="mb-2 font-bold text-lg">Progress:</Text>
+
+              <View className="w-full flex-row items-center justify-center px-2">
+                <ProgressBar
+                  animated={false}
+                  borderColor="#f4f4f4"
+                  color="#4CAF50"
+                  progress={clampPercent(progress.percent) / 100}
+                  unfilledColor="#f4f4f4"
+                  width={SCREEN_WIDTH / 1.5}
+                />
+                <Text className="ml-2 w-14 text-center">
+                  {clampPercent(progress.percent)} %
                 </Text>
-                <Text className="font-bold text-lg" style={{ marginBottom: 8 }}>
-                  Progress:
-                </Text>
-                <View
-                  className="flex-row items-center"
-                  style={{ width: "100%" }}
-                >
-                  <ProgressBar
-                    animated={false}
-                    borderColor="#f4f4f4"
-                    color={colors.primaryColor}
-                    progress={getPercentage(eDumpState.mainProgress) / 100}
-                    unfilledColor="#f4f4f4"
-                    width={SCREEN_WIDTH - 64 - 32 - 48}
-                  />
-                  <Text
-                    className="ml-2 font-bold"
-                    style={{ width: 48, textAlign: "right" }}
-                  >
-                    {getPercentage(eDumpState.mainProgress)}%
-                  </Text>
-                </View>
               </View>
             </View>
           )}
 
-          {/* Done State */}
-          {eDumpState.status === "DONE" && (
-            <View className="bg-white" style={{ paddingVertical: 16 }}>
-              {eDumpState.isUploadStatus === undefined ? (
+          {/* Complete State */}
+          {progress.state === "COMPLETE" && (
+            <View className="bg-white py-4">
+              {progress.uploadStatus === "pending" && (
                 <View className="items-center bg-white">
-                  {/* Loading indicator while uploading */}
-                </View>
-              ) : (
-                <View className="items-center">
-                  <Image className="h-10 w-10" source={infoIcon} />
+                  <Text className="mx-4 mt-4 mb-4 text-center font-bold text-lg">
+                    Finished offline analytics successfully.{"\n"}
+                    Please wait, uploading the file...
+                  </Text>
                 </View>
               )}
 
-              <Text
-                className="text-center font-bold text-xl"
-                style={{
-                  marginTop: 16,
-                  marginBottom: 16,
-                  marginHorizontal: 16,
-                }}
-              >
-                {eDumpState.isUploadStatus === undefined
-                  ? "Finished Offline Analytic Successfully, \nPlease wait, uploading the file"
-                  : eDumpState.message}
-              </Text>
-
-              <PrimaryButton
-                inactive={eDumpState.isUploadStatus === undefined}
-                onPress={() => {
-                  router.back();
-                }}
-                text="OKAY"
-              />
+              {progress.uploadStatus !== "pending" && (
+                <>
+                  <View className="items-center">
+                    <Image className="h-10 w-10" source={infoIcon} />
+                  </View>
+                  <Text className="mx-4 mt-4 mb-4 text-center font-bold text-lg">
+                    {progress.message}
+                  </Text>
+                  <PrimaryButton
+                    className="mx-4 mt-6"
+                    onPress={handleComplete}
+                    text="OKAY"
+                  />
+                </>
+              )}
             </View>
           )}
 
-          {showConfirmationModal && <FailureModal />}
+          {showFailureModal && <FailureModal />}
         </View>
       </View>
     </>

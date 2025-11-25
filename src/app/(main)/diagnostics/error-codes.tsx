@@ -1,8 +1,7 @@
 import Icon from "@expo/vector-icons/EvilIcons";
-import { useFocusEffect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
+import { Image } from "expo-image";
+import { useEffect, useState } from "react";
 import {
-  BackHandler,
   FlatList,
   Modal,
   NativeEventEmitter,
@@ -56,7 +55,7 @@ export default function ErrorCodesScreen() {
 
   // Clear error codes
   const clearCode = async (errorCode: string) => {
-    console.log(errorCode);
+    console.log("[ErrorCodes] Clearing error code:", errorCode);
     setLoading(true);
     BluetoothModule.subscribeToClearCode(selectedEcu.index, errorCode);
     isClearCodeInProcess = true;
@@ -149,12 +148,26 @@ export default function ErrorCodesScreen() {
         `TimeOut, Controller did not respond. Please check the ${selectedEcu?.ecuName} and the BT dongle`
       );
     } else if (Array.isArray(value)) {
-      const tempArray = value.map((item: ErrorCode) => ({
-        ...item,
-        status: item.status,
-        image: danger,
-      }));
-      setErrorCodes(tempArray);
+      console.log("[ErrorCodes] Error Codes received:", value);
+
+      // Remove duplicates based on 'text' field
+      const uniqueErrorCodes = value.reduce(
+        (acc: ErrorCodeWithImage[], item: ErrorCode) => {
+          const isDuplicate = acc.some(
+            (existingItem) => existingItem.text === item.text
+          );
+          if (!isDuplicate) {
+            acc.push({
+              ...item,
+              image: danger,
+            });
+          }
+          return acc;
+        },
+        []
+      );
+
+      setErrorCodes(uniqueErrorCodes);
     }
     setLoading(false);
     BluetoothModule.unsubscribeToErrorCodesList();
@@ -206,35 +219,6 @@ export default function ErrorCodesScreen() {
     getErrorCode();
   }, []);
 
-  useFocusEffect(
-    useCallback(() => {
-      function handleBackButton() {
-        return loading;
-      }
-
-      const subscription = BackHandler.addEventListener(
-        "hardwareBackPress",
-        handleBackButton
-      );
-      return () => subscription.remove();
-    }, [loading])
-  );
-
-  // // Remove duplicates
-  // const uniqueList = (list: ErrorCodeWithImage[]) => {
-  //   if (list.length <= 1) {
-  //     return list;
-  //   }
-  //   const seen = new Map();
-  //   return list.filter((item) => {
-  //     if (seen.has(item.code)) {
-  //       return false;
-  //     }
-  //     seen.set(item.code, true);
-  //     return true;
-  //   });
-  // };
-
   // Error detail modal
   const ErrorDetailModal = () => {
     if (!selectedError) {
@@ -253,34 +237,80 @@ export default function ErrorCodesScreen() {
           onPress={() => setSelectedError(null)}
         >
           <Pressable
-            className="w-[90%] rounded-lg bg-white p-4"
+            className="mx-4 w-[85%] rounded-lg bg-white shadow-2xl"
             onPress={(e) => e.stopPropagation()}
           >
+            {/* Header with title and close button */}
+            <View className="flex-row items-center justify-between border-gray-200 border-b px-4 py-3">
+              <Text className="flex-1 font-bold text-lg">Error Details</Text>
+              <Icon
+                color="#000"
+                name="close"
+                onPress={() => setSelectedError(null)}
+                size={32}
+              />
+            </View>
+
+            {/* Error details table */}
             <View>
-              <View className="mb-2 items-end">
-                <Icon
-                  color="#000"
-                  name="close"
-                  onPress={() => setSelectedError(null)}
-                  size={32}
-                />
+              {/* Fault Name Row */}
+              <View className="flex-row items-center border-gray-200 border-b px-3 py-3">
+                <Text className="w-[40%] font-bold text-gray-700 text-sm">
+                  Fault Name
+                </Text>
+                <Text className="flex-1 font-semibold text-sm">
+                  {selectedError.name || "N/A"}
+                </Text>
               </View>
-              <Text className="mb-2 font-bold text-xl">
-                {selectedError.code}
-              </Text>
-              <Text className="mb-4 text-base text-gray-600">
-                {selectedError.description}
-              </Text>
-              <View className="mb-4 items-center">
-                {selectedError.status === "inactive" ? (
-                  <View className="rounded-full bg-green-500 px-4 py-2">
-                    <Text className="font-bold text-white">HISTORY</Text>
+
+              {/* Error Code Row */}
+              <View className="flex-row items-center border-gray-200 border-b px-3 py-3">
+                <Text className="w-[40%] font-bold text-gray-700 text-sm">
+                  Error Code
+                </Text>
+                <Text className="flex-1 font-semibold text-sm">
+                  {selectedError.text}
+                </Text>
+              </View>
+
+              {/* Description Row */}
+              <View className="flex-row items-center border-gray-200 border-b px-3 py-3">
+                <Text className="w-[40%] font-bold text-gray-700 text-sm">
+                  Description
+                </Text>
+                <Text className="flex-1 font-medium text-sm">
+                  {selectedError.description}
+                </Text>
+              </View>
+
+              {/* Status Row */}
+              <View className="flex-row items-center border-gray-200 border-b px-3 py-3">
+                <Text className="w-[40%] font-bold text-gray-700 text-sm">
+                  Status
+                </Text>
+                <View className="flex-1">
+                  <View
+                    className={`self-start rounded-full px-3 py-1 ${
+                      selectedError.status === "History"
+                        ? "bg-green-500"
+                        : "bg-red-500"
+                    }`}
+                  >
+                    <Text className="font-bold text-white text-xs">
+                      {selectedError.status.toUpperCase()}
+                    </Text>
                   </View>
-                ) : (
-                  <View className="rounded-full bg-red-500 px-4 py-2">
-                    <Text className="font-bold text-white">ACTIVE</Text>
-                  </View>
-                )}
+                </View>
+              </View>
+
+              {/* Remedy Row */}
+              <View className="flex-row items-center px-3 py-3">
+                <Text className="w-[40%] font-bold text-gray-700 text-sm">
+                  Remedy
+                </Text>
+                <Text className="flex-1 font-medium text-sm">
+                  {selectedError.remedy}
+                </Text>
               </View>
             </View>
           </Pressable>
@@ -345,23 +375,23 @@ export default function ErrorCodesScreen() {
       {errorCodes.length !== 0 ? (
         <FlatList
           data={errorCodes}
-          keyExtractor={(item, index) => `${item.code}-${index}`}
+          keyExtractor={(item, index) => `${item.text}-${index}`}
           renderItem={({ item }) => (
             <Pressable
               className="my-2 flex-row border-gray-300 border-b pb-4"
               onPress={() => setSelectedError(item)}
             >
               <View className="mx-2 justify-center p-2">
-                {/* <Image source={item.image} className="h-10 w-10" /> */}
+                <Image className="h-10 w-10" source={item.image} />
               </View>
               <View className="flex-1 justify-center">
-                <Text className="pb-2 font-bold text-xl">{item.code}</Text>
+                <Text className="pb-2 font-bold text-xl">{item.text}</Text>
                 <Text className="text-base text-gray-600">
                   {item.description}
                 </Text>
               </View>
               <View className="mx-4 items-end justify-center">
-                {item.status === "inactive" ? (
+                {item.status === "History" ? (
                   <View className="rounded-full bg-green-500 px-4 py-2">
                     <Text className="text-center font-bold text-white">
                       HISTORY
@@ -406,31 +436,25 @@ export default function ErrorCodesScreen() {
       </View>
 
       {/* Clear Error Type Selection Modal */}
-      <Modal
-        animationType="fade"
-        onRequestClose={toggleOverlay}
-        transparent
-        visible={isVisible}
-      >
+      <Modal onRequestClose={toggleOverlay} transparent visible={isVisible}>
         <Pressable
           className="flex-1 items-center justify-center bg-black/50"
           onPress={toggleOverlay}
         >
           <Pressable
-            className="w-[80%] rounded-lg bg-white pt-5"
+            className="w-[80%] rounded-lg bg-white"
             onPress={(e) => e.stopPropagation()}
           >
             <View>
-              <View>
+              <View className="items-end px-4 pt-3">
                 <Icon
                   color="#000"
                   name="close"
                   onPress={() => setIsVisible(false)}
                   size={32}
-                  style={{ alignSelf: "flex-end", paddingBottom: 8 }}
                 />
               </View>
-              <Text className="mx-4 mb-4 text-center text-xl">
+              <Text className="px-4 pb-4 text-center text-xl">
                 Select the Error Type
               </Text>
               <View>

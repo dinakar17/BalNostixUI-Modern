@@ -1,62 +1,38 @@
 import { NativeModules } from "react-native";
 import { create } from "zustand";
 import { BASEURL } from "@/api/fms";
+import type { ECURecordExtended } from "@/types/bluetooth.types";
 
 const { BluetoothModule } = NativeModules;
 
-export type ControllerData = {
-  index: number;
-  ecuName: string;
-  ecu_id: string;
-  isActuatorEnabled: boolean;
-  isAnalyticsEnabled: boolean;
-  isErrorCodeEnabled: boolean;
-  isReadParameterEnabled: boolean;
-  isReprogramEnabled: boolean;
-  isSpecialFunctionEnabled: boolean;
-  isUpdateBootEnabled: boolean;
-  isWriteParameterEnabled: boolean;
-  isEEDumpOperation: boolean;
-  isVinWrite: boolean;
-  isBinWrite: boolean;
-  isUSBPrograming: boolean;
-  dynamicWaitTime: number;
-  updateFrameTime: number;
-  isUpdatePerFrame: boolean;
-  isShowUpdatePerFrameTime: boolean;
-  isForceEachTimeOA: boolean;
-  isCheckBIOError: boolean;
-  isProgConstWriteEnabled: boolean;
-  readParamAutoRefreshShownInGroupName: boolean;
-  isWriteMotorType: boolean;
-  isAutomateMotorType: boolean;
-  motorTypeId: string;
-  mcuOffsetLearnTriggerId: string;
-  is_update_required: boolean;
-};
+/**
+ * @deprecated Use ECURecordExtended from @/types/bluetooth.types instead
+ * This type is kept for backwards compatibility but will be removed in future versions
+ */
+export type ControllerData = ECURecordExtended;
 
 type BluetoothState = {
   // State
   isBluetoothConnected: boolean;
   connectedDeviceName: string | null;
-  selectedEcu: ControllerData | null;
-  controllersData: ControllerData[];
+  selectedEcu: ECURecordExtended | null;
+  controllersData: ECURecordExtended[];
 
   // Actions
   connectToDevice: (address: string, name: string) => Promise<boolean>;
   disconnectFromDevice: () => void;
   updateBluetooth: () => void;
-  setControllersData: (data: ControllerData[]) => void;
-  setSelectedEcu: (ecu: ControllerData | null) => void;
+  setControllersData: (data: ECURecordExtended[]) => void;
+  setSelectedEcu: (ecu: ECURecordExtended | null) => void;
   setControllersUpdatedData: (
-    controllersData: ControllerData[],
+    controllersData: ECURecordExtended[],
     index: number,
-    updatedData: Partial<ControllerData>
-  ) => ControllerData | null;
+    updatedData: Partial<ECURecordExtended>
+  ) => ECURecordExtended | null;
   setIsUpdateAvailableToFalse: (
-    controllersData: ControllerData[],
+    controllersData: ECURecordExtended[],
     index: number
-  ) => ControllerData | null;
+  ) => ECURecordExtended | null;
 };
 
 export const useBluetoothStore = create<BluetoothState>()((set) => ({
@@ -102,20 +78,20 @@ export const useBluetoothStore = create<BluetoothState>()((set) => ({
   },
 
   // Set controllers data
-  setControllersData: (data: ControllerData[]) => {
+  setControllersData: (data: ECURecordExtended[]) => {
     set({ controllersData: data });
   },
 
   // Set selected ECU
-  setSelectedEcu: (ecu: ControllerData | null) => {
+  setSelectedEcu: (ecu: ECURecordExtended | null) => {
     set({ selectedEcu: ecu });
   },
 
   // Update specific controller data
   setControllersUpdatedData: (
-    controllersData: ControllerData[],
+    controllersData: ECURecordExtended[],
     index: number,
-    updatedData: Partial<ControllerData>
+    updatedData: Partial<ECURecordExtended>
   ) => {
     const elementIndex = controllersData.findIndex((o) => o.index === index);
 
@@ -124,7 +100,7 @@ export const useBluetoothStore = create<BluetoothState>()((set) => ({
     }
 
     const element = controllersData[elementIndex];
-    const selectedEcuUpdatedData: ControllerData = {
+    const selectedEcuUpdatedData: ECURecordExtended = {
       ...element,
       ...updatedData,
     };
@@ -138,7 +114,7 @@ export const useBluetoothStore = create<BluetoothState>()((set) => ({
 
   // Set update available to false for specific controller
   setIsUpdateAvailableToFalse: (
-    controllersData: ControllerData[],
+    controllersData: ECURecordExtended[],
     index: number
   ) => {
     const elementIndex = controllersData.findIndex((o) => o.index === index);
@@ -148,7 +124,7 @@ export const useBluetoothStore = create<BluetoothState>()((set) => ({
     }
 
     const element = controllersData[elementIndex];
-    const selectedEcuUpdatedData: ControllerData = {
+    const selectedEcuUpdatedData: ECURecordExtended = {
       ...element,
       is_update_required: false,
     };

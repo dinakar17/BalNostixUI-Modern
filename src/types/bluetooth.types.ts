@@ -238,6 +238,7 @@ export type ECURecord = {
   oldHexFileName: string;
   isCheckBIOError: boolean;
   readParamAutoRefreshShownInGroupName: string;
+  // VIN number is only included in getEcuRecords, not in getUpdatedEcuRecords
   vinNumber?: string;
   // Motor type related
   isWriteMotorType: boolean;
@@ -250,6 +251,15 @@ export type ECURecord = {
   isUpdatePerFrame: boolean;
   isShowUpdatePerFrameTime: boolean;
   isForceEachTimeOA: boolean;
+};
+
+/**
+ * Extended ECU record with additional UI/app-specific fields
+ * Used when ECU records need extra metadata beyond what the native module provides
+ */
+export type ECURecordExtended = ECURecord & {
+  ecu_id?: string;
+  is_update_required?: boolean;
 };
 
 /**

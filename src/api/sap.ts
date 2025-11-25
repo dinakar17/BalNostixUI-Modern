@@ -192,7 +192,7 @@ async function retryFailedRequests(): Promise<{
   const failedRequests = await getFailedRequests();
 
   if (failedRequests.length === 0) {
-    console.log("No failed SAP requests to retry.");
+    console.log("[SAP] No failed SAP requests to retry.");
     return { success: 0, failed: 0 };
   }
 

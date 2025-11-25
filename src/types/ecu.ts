@@ -49,24 +49,42 @@ export type ECURecord = {
  * DID (Data Identifier) Parameter types
  */
 export type DIDParameter = {
-  description: string;
-  didHex: string;
-  value: string;
-  hint: string;
-  min: string;
-  max: string;
-  showProgress: boolean;
-  timeoutInMs: number;
+  // Read parameters fields
+  name?: string; // Parameter name (e.g., "VCU_Assembly_part_number")
+  detail?: string; // Parameter value/detail (e.g., "GL440627")
+
+  // Write parameters fields
+  didHex?: string; // DID hex value (e.g., "F117")
+  description?: string; // Parameter description (e.g., "VCU_TriggerVINTeach")
+  value?: string; // Current value
+  hint?: string | string[]; // Input hints or dropdown options
+  min?: string;
+  max?: string;
+  minValue?: string | null;
+  maxValue?: string | null;
+  valueType?: string; // "FLOAT", "HEX", "ASCII", "INT"
+
+  // Write operation fields
+  showProgress?: boolean;
+  timeoutInMs?: number;
+  isCallProPackStatusUploadApi?: boolean;
+  isRedColorEnable?: boolean;
+  isResultRaw?: boolean;
+  checkDid?: string | null;
+  newValue?: string | null;
+  resultToFail?: string;
+  resultToPass?: string;
 };
 
 /**
  * Error Code types
  */
 export type ErrorCode = {
-  code: string;
+  text: string; // The DTC code (e.g., "P071A-13")
+  name: string; // Internal name (e.g., "DRV_OPEN_CKT")
   description: string;
-  status: "active" | "inactive" | "permanent";
-  dtc: string;
+  remedy: string;
+  status: "Current" | "History" | "Both";
 };
 
 /**

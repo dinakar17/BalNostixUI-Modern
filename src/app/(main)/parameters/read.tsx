@@ -54,7 +54,7 @@ export default function ReadParametersScreen() {
       );
     } catch (error) {
       toastError("Failed to get read parameters");
-      console.log(error);
+      console.log("[ReadParameters] Error getting list:", error);
     }
   };
 
@@ -65,22 +65,33 @@ export default function ReadParametersScreen() {
         response.success &&
         response.data
       ) {
+        console.log(
+          "[ReadParameters] Read Parameters Response:",
+          response.data
+        );
         setLoading(false);
         setList([...response.data]);
       }
       if (response.name === "updateUI" && response.value) {
         try {
           const jsonData = JSON.parse(response.value);
-          console.log(jsonData, response);
+          console.log("[ReadParameters]", jsonData, response);
           if (jsonData.valueFor === "UpdateAll") {
             setIsReadParameterRunning(false);
+            // Stop auto-refresh if it wasn't explicitly enabled
+            if (!autoUpdate) {
+              BluetoothModule.setReadParamAutoRefresh(
+                false,
+                Number.parseInt(ecuIndex || "0", 10)
+              );
+            }
           }
         } catch (err) {
-          console.log("Error parsing updateUI:", err);
+          console.log("[ReadParameters] Error parsing updateUI:", err);
         }
       }
     } catch (err) {
-      console.log(err);
+      console.log("[ReadParameters] Error:", err);
       setLoading(false);
     }
   };
@@ -92,7 +103,7 @@ export default function ReadParametersScreen() {
     );
     setAutoUpdate(isAutoUpdate);
     if (isAutoUpdate && !isReadParameterRunning) {
-      console.log("call read again done");
+      console.log("[ReadParameters] call read again done");
       getList();
     }
   };
@@ -104,9 +115,19 @@ export default function ReadParametersScreen() {
       onResponse
     );
     const updateUiListener = eventEmitter.addListener("updateUI", onResponse);
-    toggleAutoUpdate(false);
+
+    // Ensure auto-refresh is disabled on mount
+    BluetoothModule.setReadParamAutoRefresh(
+      false,
+      Number.parseInt(ecuIndex || "0", 10)
+    );
+
     return () => {
-      toggleAutoUpdate(false);
+      // Ensure auto-refresh is stopped on unmount
+      BluetoothModule.setReadParamAutoRefresh(
+        false,
+        Number.parseInt(ecuIndex || "0", 10)
+      );
       nativeListener.remove();
       updateUiListener.remove();
       BluetoothModule.stopReadParametersTimer();
@@ -204,13 +225,21 @@ export default function ReadParametersScreen() {
           <ScrollView showsVerticalScrollIndicator={false}>
             <FlatList
               data={list}
-              keyExtractor={(item, index) => `${item.description}-${index}`}
+              keyExtractor={(item, index) =>
+                `${item.name || item.description || index}-${index}`
+              }
               renderItem={({ item }) => (
-                <View className="border-gray-200 border-b py-4">
-                  <Text className="mx-4 mb-2 font-bold text-gray-400 text-lg">
-                    {item.description}
-                  </Text>
-                  <Text className="mx-4 font-bold text-lg">{item.value}</Text>
+                <View className="flex-row border-gray-400 border-b-[0.5px]">
+                  <View className="flex-1 py-4">
+                    <Text className="mx-4 mb-2 font-bold text-gray-400 text-lg">
+                      {item.name
+                        ? item.name.replace(/_/g, " ")
+                        : item.description || "N/A"}
+                    </Text>
+                    <Text className="mx-4 font-bold text-lg">
+                      {item.detail || item.value || "-"}
+                    </Text>
+                  </View>
                 </View>
               )}
               scrollEnabled={false}

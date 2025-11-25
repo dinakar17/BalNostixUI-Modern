@@ -117,7 +117,7 @@ export default function WriteParametersScreen() {
     try {
       BluetoothModule.getWriteParameter(selectedEcu.index);
     } catch (err) {
-      console.log(err);
+      console.log("[WriteParameters] Error getting write parameter:", err);
     }
   }, [selectedEcu.index]);
 
@@ -133,7 +133,7 @@ export default function WriteParametersScreen() {
       }
       return message;
     } catch {
-      console.log("Data coming from lib:", message);
+      console.log("[WriteParameters] Data coming from lib:", message);
       return "";
     }
   };
@@ -279,6 +279,7 @@ export default function WriteParametersScreen() {
 
       if (
         editData?.editData?.showProgress &&
+        editData.editData.timeoutInMs &&
         waitTimeByDefault < editData.editData.timeoutInMs
       ) {
         waitTimeByDefault = editData.editData.timeoutInMs + 100;
@@ -298,7 +299,7 @@ export default function WriteParametersScreen() {
         }
       }
     } catch (_error) {
-      console.log(_error);
+      console.log("[WriteParameters] Error in getWriteParameters:", _error);
     }
   };
 
@@ -309,6 +310,10 @@ export default function WriteParametersScreen() {
         response.success &&
         response.data
       ) {
+        console.log(
+          "[WriteParameters] Write Parameters Response:",
+          response.data
+        );
         handleWriteParametersResponse(response.data);
         return;
       }
@@ -318,7 +323,7 @@ export default function WriteParametersScreen() {
         handleUpdateUIResponse(responseString);
       }
     } catch (err) {
-      console.log(err);
+      console.log("[WriteParameters] Error:", err);
     }
   };
 
@@ -338,7 +343,7 @@ export default function WriteParametersScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      console.log(`writeParameter ${writeParameter.length}`);
+      console.log("[WriteParameters] writeParameter", writeParameter.length);
       getWriteParameter();
     }, [getWriteParameter, writeParameter.length])
   );
@@ -382,8 +387,10 @@ export default function WriteParametersScreen() {
     const hint = item?.hint?.toString()?.toUpperCase();
     if (hint && hint !== "NULL" && hint !== "NONE" && hint !== "") {
       try {
-        const string = item.hint.toString();
-        const finalValueArray = string.split(",").map((element) => {
+        const hintString = Array.isArray(item.hint)
+          ? item.hint.join(",")
+          : item.hint || "";
+        const finalValueArray = hintString.split(",").map((element) => {
           const [value, label] = element.trim().split("=");
           return { label: label.trim(), value: value.trim() };
         });
@@ -393,7 +400,7 @@ export default function WriteParametersScreen() {
         setHasOptions(false);
       }
     }
-    setEditData({ editData: item });
+    setEditData({ editData: item as EditData["editData"] });
     setIsVisible(true);
   };
 
@@ -435,17 +442,17 @@ export default function WriteParametersScreen() {
           >
             {writeParameter.map((item) => (
               <TouchableOpacity
-                className="flex-1 py-4"
+                className="flex-row border-gray-400 border-b-[0.5px]"
                 key={item.didHex}
                 onPress={() => onEditDidParameterButtonClick(item)}
               >
-                <View>
+                <View className="flex-1 py-4">
                   <Text className="mx-4 mb-2 font-bold text-gray-400 text-lg">
                     {item.description}
                   </Text>
                   <Text className="mx-4 font-bold text-lg">{item.value}</Text>
                 </View>
-                <View className="mr-4 items-end justify-center">
+                <View className="items-center justify-center pr-4">
                   <Icon color="#63C76D" name="edit-2" size={20} />
                 </View>
               </TouchableOpacity>
@@ -527,11 +534,12 @@ export default function WriteParametersScreen() {
                 ) : (
                   <TextInput
                     className="mx-2 my-2 flex-1 rounded-lg border border-gray-300 px-4 py-2 font-bold text-black"
-                    onChangeText={(value) =>
-                      setNewValue(
-                        inputValidation(editData?.editData?.hint || "", value)
-                      )
-                    }
+                    onChangeText={(value) => {
+                      const hintValue = Array.isArray(editData?.editData?.hint)
+                        ? editData.editData.hint[0]
+                        : editData?.editData?.hint || "";
+                      setNewValue(inputValidation(hintValue, value));
+                    }}
                     placeholder="Enter Value"
                     placeholderTextColor="gray"
                     value={newValue}

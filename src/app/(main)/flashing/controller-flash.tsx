@@ -4,7 +4,7 @@ import { Image } from "expo-image";
 import { useKeepAwake } from "expo-keep-awake";
 import { LinearGradient } from "expo-linear-gradient";
 import { router, useFocusEffect } from "expo-router";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   BackHandler,
   NativeEventEmitter,
@@ -29,6 +29,8 @@ dayjs.extend(duration);
 
 const { BluetoothModule } = NativeModules;
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 type FlashingState = {
   mainProgress: number;
   subProgress: number;
@@ -47,6 +49,7 @@ export default function ControllerFlashScreen() {
   const [flashingState, setFlashingState] = useState<FlashingState | null>(
     null
   );
+  const [_, setPrevFlashingState] = useState<FlashingState | null>(null);
   const [isFlashing, setIsFlashing] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [failureMessage, setFailureMessage] = useState("");
@@ -59,6 +62,10 @@ export default function ControllerFlashScreen() {
   const subscriptionRef = useRef<{ remove: () => void } | null>(null);
   const timeStartRef = useRef<dayjs.Dayjs | null>(null);
   const isFlashingUpdatedRef = useRef(false);
+
+  const toggleOverlay = () => {
+    setIsVisible(!isVisible);
+  };
 
   const handleStartTimeout = (delay = 5000) => {
     handleCancelTimeout();
@@ -278,6 +285,25 @@ export default function ControllerFlashScreen() {
         status: getStatus(response.value.status),
       };
 
+      if (isTimeTextVisible) {
+        console.log(
+          "handleStartTimeout onresponse cancel old and new start",
+          ", delay:",
+          selectedEcu?.dynamicWaitTime
+        );
+        if (selectedEcu?.dynamicWaitTime) {
+          handleStartTimeout(selectedEcu.dynamicWaitTime);
+        }
+      }
+
+      // Store previous state for error reporting
+      if (
+        flashResponse.mainProgress !== -1 &&
+        flashResponse.subProgress !== -1
+      ) {
+        setPrevFlashingState(flashResponse);
+      }
+
       updateFlashProgress();
 
       // Failure condition
@@ -286,6 +312,7 @@ export default function ControllerFlashScreen() {
         flashResponse.subProgress === -1
       ) {
         handleFlashFailure(flashResponse);
+        handleCancelTimeout();
         return;
       }
 
@@ -294,10 +321,13 @@ export default function ControllerFlashScreen() {
         flashResponse.mainProgress === 100 &&
         handleFlashSuccess(flashResponse)
       ) {
+        handleCancelTimeout();
         return;
       }
 
       setFlashingState(flashResponse);
+    } else if (response.name === "bootFlash") {
+      console.log(response?.value);
     }
   };
 
@@ -340,24 +370,28 @@ export default function ControllerFlashScreen() {
       timeStartRef.current = dayjs();
       setTimeTextVisible(selectedEcu.isShowUpdatePerFrameTime);
 
-      if (selectedEcu.isShowUpdatePerFrameTime && selectedEcu.dynamicWaitTime) {
+      console.log(
+        "handleStartTimeout reProgram on clicked start isShowUpdatePerFrameTime:",
+        selectedEcu.isShowUpdatePerFrameTime,
+        ", delay:",
+        selectedEcu.dynamicWaitTime
+      );
+
+      if (isTimeTextVisible && selectedEcu.dynamicWaitTime) {
         handleStartTimeout(selectedEcu.dynamicWaitTime);
       } else {
         let totalTime = 0;
-        const checkTimeout = async () => {
-          while (isFlashingUpdatedRef.current) {
-            await new Promise((resolve) => setTimeout(resolve, 10));
-            if (totalTime > 9_000_000) {
-              isFlashingUpdatedRef.current = false;
-              setIsVisible(false);
-              setIsFlashing(false);
-              handleFailure("Timeout Please Try Again");
-              break;
-            }
-            totalTime += 10;
+        while (isFlashingUpdatedRef.current) {
+          await sleep(10);
+          if (totalTime > 9_000_000) {
+            isFlashingUpdatedRef.current = false;
+            setIsVisible(false);
+            setIsFlashing(false);
+            handleFailure("Timeout Please Try Again");
+            break;
           }
-        };
-        await checkTimeout();
+          totalTime += 10;
+        }
       }
     } catch (error) {
       console.log("reProgram error:", error);
@@ -373,16 +407,28 @@ export default function ControllerFlashScreen() {
     return Math.min(100, Math.max(0, parsedNumber));
   };
 
+  // Cleanup on unmount
+  useEffect(() => {
+    if (isFlashing) {
+      return () => {
+        subscriptionRef.current?.remove();
+        BluetoothModule.unSubscribeToFlashingUpdate();
+        BluetoothModule.stopAllTimersFromReact();
+      };
+    }
+  }, [isFlashing]);
+
+  // Handle back button
+  const handleBackButton = React.useCallback(() => {
+    if (isFlashing) {
+      return true;
+    }
+    router.push("/(main)/controllers/operations");
+    return true;
+  }, [isFlashing]);
+
   useFocusEffect(
     React.useCallback(() => {
-      const handleBackButton = () => {
-        if (isFlashing) {
-          return true;
-        }
-        router.push("/(main)/controllers/operations");
-        return true;
-      };
-
       const backHandler = BackHandler.addEventListener(
         "hardwareBackPress",
         handleBackButton
@@ -393,19 +439,23 @@ export default function ControllerFlashScreen() {
           cleanup();
         }
       };
-    }, [isFlashing, cleanup])
+    }, [isFlashing, handleBackButton, cleanup])
   );
 
   const FailureModal = () => (
     <View className="absolute inset-0 items-center justify-center bg-black/50">
-      <View className="w-[83.33%] rounded-lg bg-white px-4 py-4">
-        <Image
-          className="h-10 w-10 self-center"
-          contentFit="contain"
-          source={infoIcon}
-        />
+      <View
+        className="rounded-lg bg-white px-4 py-4"
+        style={{ width: metrics.width / 1.2 }}
+      >
+        <View className="items-center">
+          <Image className="h-10 w-10" contentFit="contain" source={infoIcon} />
+        </View>
         <Text className="mt-4 text-center font-proximanova text-lg">
           {failureMessage}
+          {/* {prevFlashingState?.mainProgress || prevFlashingState?.subProgress
+            ? `#B${prevFlashingState.mainProgress}#S${prevFlashingState.subProgress}`
+            : ""} */}
         </Text>
         <View className="mt-4">
           <PrimaryButton
@@ -445,7 +495,8 @@ export default function ControllerFlashScreen() {
                 description="RF Noise may lead to flashing failure, you may need to re-attempt flashing"
                 primaryButtonOnPress={() => {
                   reProgram();
-                  setIsVisible(true);
+                  toggleOverlay();
+                  // BluetoothModule.updateBootLoader(); // not needed
                 }}
                 primaryButtonText="OKAY"
                 secondDescription={`Ensure that ${(selectedEcu as unknown as { oldHexFileName: string })?.oldHexFileName} is associated with ${selectedEcu?.ecuName}?`}
@@ -522,7 +573,7 @@ export default function ControllerFlashScreen() {
                 <PrimaryButton
                   onPress={() => {
                     postDongleFlash();
-                    router.push("/(main)/controllers/operations");
+                    router.push("/(main)/flashing/flash-success");
                   }}
                   text="OKAY"
                 />

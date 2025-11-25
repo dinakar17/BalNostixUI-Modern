@@ -144,7 +144,11 @@ export default function SelectDataTransferModeScreen() {
           isFlashingUpdated = false;
           setOverlayLoading(false);
           setIsLoadingUSB(false);
-        } else if (jsonData.value.includes("SerialNo")) {
+        } else if (
+          jsonData.value &&
+          typeof jsonData.value === "string" &&
+          jsonData.value.includes("SerialNo")
+        ) {
           const indexOfSerial = jsonData.value.indexOf(":");
           const serialNo = jsonData.value.substring(indexOfSerial + 1);
           console.log("[DataTransferMode] Dongle serial:", serialNo);

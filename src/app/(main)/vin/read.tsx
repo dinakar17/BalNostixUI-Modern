@@ -21,9 +21,8 @@ import { CustomHeader } from "@/components/ui/header";
 import { OverlayView } from "@/components/ui/overlay";
 import { toastError } from "@/lib/toast";
 import { useAuthStore } from "@/store/auth-store";
-import type { ControllerData } from "@/store/bluetooth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
-import type { ECURecord } from "@/types/bluetooth.types";
+import type { ECURecord, ECURecordExtended } from "@/types/bluetooth.types";
 
 const { BluetoothModule, TestModule } = NativeModules;
 
@@ -82,12 +81,12 @@ export default function ReadVINScreen() {
   const checkDonglePhase = useCallback(async () => {
     try {
       const res = await BluetoothModule.isDonglePhase3();
-      console.log("isDonglePhase3 in RVS:", res);
+      console.log(`[ReadVINScreen] Dongle Hardware is Phase 3: ${res}`);
       updateIsDonglePhase3State(res);
       return res;
     } catch (error) {
       toastError("It looks like you haven't connected to the dongle yet.");
-      console.log("Error checking dongle phase:", error);
+      console.log("[ReadVINScreen] Error checking dongle phase:", error);
       return false;
     }
   }, [updateIsDonglePhase3State]);
@@ -227,7 +226,9 @@ export default function ReadVINScreen() {
 
         setTotalFilesToDownload(ecuRecords.length);
 
-        for (const [index, ecuRecord] of ecuRecords.entries()) {
+        const extendedEcuRecords: ECURecordExtended[] = [];
+
+        for (const ecuRecord of ecuRecords) {
           const controllerObj = response?.data?.data?.controllers.find(
             (o: { name: string }) => o.name === ecuRecord.ecuName
           ) as { hexfiles: { is_update_required: boolean }[] } | undefined;
@@ -240,10 +241,14 @@ export default function ReadVINScreen() {
               }
             }
           }
-          // Add is_update_required to ecuRecord dynamically
-          (
-            ecuRecords[index] as ECURecord & { is_update_required: boolean }
-          ).is_update_required = tempIsUpdateRequired;
+
+          // Create extended ECU record with is_update_required field
+          const extendedEcuRecord: ECURecordExtended = {
+            ...ecuRecord,
+            is_update_required: tempIsUpdateRequired,
+          };
+
+          extendedEcuRecords.push(extendedEcuRecord);
 
           // Download files
           if (ecuRecord.appHexUrl && validateURL(ecuRecord.appHexUrl)) {
@@ -305,7 +310,7 @@ export default function ReadVINScreen() {
         }
 
         if (res) {
-          setControllersData(ecuRecords as unknown as ControllerData[]);
+          setControllersData(extendedEcuRecords);
 
           // Navigate to SendBINDataScreen to handle BIN data sending
           setIsDownloading(false);

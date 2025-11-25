@@ -1,4 +1,3 @@
-import axios from "axios";
 import { Directory, File, Paths } from "expo-file-system";
 import { createMMKV } from "react-native-mmkv";
 import useSWRMutation from "swr/mutation";
@@ -36,7 +35,7 @@ type UploadEeDumpParams = Record<string, never>;
 // Helper Functions
 // ============================================
 
-// Helper function to upload a single EE dump job
+// Helper function to upload a single EE dump job using fetch
 const uploadSingleJob = async (
   job: {
     filePath: string;
@@ -47,35 +46,55 @@ const uploadSingleJob = async (
   token: string
 ): Promise<boolean> => {
   try {
+    // Ensure the file path has the file:// prefix
+    const fileUri = job.filePath.startsWith("file://")
+      ? job.filePath
+      : `file://${job.filePath}`;
+
+    const file = new File(fileUri);
+
+    // Check if file exists
+    if (!file.exists) {
+      console.log(`File not found: ${fileUri}`);
+      return false;
+    }
+
     const formData = new FormData();
+
+    // Append file using the React Native FormData format
     formData.append("analyticsfile", {
-      uri: job.filePath,
+      uri: fileUri,
       name: `${job.vin_number}_${new Date().toISOString()}.zip`,
       type: "application/zip",
-    } as unknown as Blob);
+    } as any);
+
     formData.append("vin_number", job.vin_number);
     formData.append("ecu", job.ecu_name);
     formData.append("oa_status", job.status === "Success" ? "Pass" : "Fail");
 
-    const response = await axios.post(
+    const response = await fetch(
       `${ENV.FMS_URL}/api/v4/analytics/upload-analytics`,
-      formData,
       {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
+          // Don't set Content-Type for FormData - fetch will set it automatically with boundary
         },
+        body: formData,
       }
     );
 
-    if (response.data.message === "Success") {
+    const data = await response.json();
+
+    if (response.ok && data.message === "Success") {
       // Delete file after successful upload
-      const file = new File(`file://${job.filePath}`);
       if (file.exists) {
         file.delete();
       }
       return true;
     }
+
+    console.log("Upload failed:", data);
     return false;
   } catch (error) {
     console.error("Upload job error:", error);
@@ -142,10 +161,49 @@ async function uploadAppLogsMutation(
       logPath: logAllDir.uri,
     });
 
-    // Upload logic would go here using axios with multipart/form-data
-    // const formData = new FormData();
-    // formData.append('logs', {uri: zipPath, name: 'logs.zip', type: 'application/zip'});
-    // await axios.post(`${ENV.FMS_URL}/api/v4/upload-logs`, formData, {...});
+    // Note: You'll need to zip the logAllDir before uploading
+    // You can use react-native-zip-archive or similar library
+    // For now, assuming you have a zipped file path
+
+    // Example upload with fetch (uncomment and modify when you have zip functionality):
+    /*
+    const zipPath = `${documentPath}/logFile.zip`;
+    // ... zip the logAllDir to zipPath ...
+    
+    const formData = new FormData();
+    formData.append('logfile', {
+      uri: `file://${zipPath}`,
+      name: 'logs.zip',
+      type: 'application/zip',
+    } as any);
+    formData.append('serial_number', arg.serialNumber);
+    formData.append('vin_number', arg.vinNumber);
+    formData.append('hexfile_name', arg.hexFile);
+
+    const response = await fetch(
+      `${ENV.FMS_URL}/api/v2/vin/hexfile/log/install`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      }
+    );
+
+    const data = await response.json();
+    
+    if (response.ok && data.message === 'Success') {
+      // Clean up files
+      if (logAllDir.exists) {
+        logAllDir.delete();
+      }
+      const zipFile = new File(`file://${zipPath}`);
+      if (zipFile.exists) {
+        zipFile.delete();
+      }
+    }
+    */
 
     // Clean up temporary folder after upload
     if (logAllDir.exists) {
@@ -178,7 +236,7 @@ async function uploadEeDumpWithEcuMutation(
     // Direct storage access is correct here since eeDumpJobs is not in Zustand state
     const presentJobMap = storage.getString("eeDumpJobs");
     if (!presentJobMap) {
-      console.log("No EE dump jobs found to upload");
+      console.log("[OADataUpload] No EE dump jobs found to upload");
       return {
         error: 0,
         message: "No EE dump jobs found to upload",
@@ -204,8 +262,14 @@ async function uploadEeDumpWithEcuMutation(
 
     for (const job of jobs) {
       // Check if file exists using new API
-      const file = new File(`file://${job.filePath}`);
+      const fileUri = job.filePath.startsWith("file://")
+        ? job.filePath
+        : `file://${job.filePath}`;
+
+      const file = new File(fileUri);
+
       if (!file.exists) {
+        console.log(`File not found, skipping: ${fileUri}`);
         skippedCount += 1;
         continue;
       }
