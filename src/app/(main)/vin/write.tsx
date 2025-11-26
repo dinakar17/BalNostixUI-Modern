@@ -169,10 +169,10 @@ export default function WriteVinScreen() {
     setShowFailureModal(true);
   };
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex VIN write response handling required
   const onResponse = (response: {
     name: string;
     value: FlashingState & { status: string };
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex VIN write response handling required
   }) => {
     if (response.name === "updateWriteVin") {
       const flashResponse = {
@@ -345,10 +345,11 @@ export default function WriteVinScreen() {
             description="RF Noise may lead to flashing failure, you may need to re-attempt flashing"
             primaryButtonOnPress={handleFlashPress}
             primaryButtonText="FLASH VIN"
-            secondaryButtonOnPress={() => router.back()}
-            secondaryButtonText="CANCEL"
             title="NOTE"
-            visible={true}
+            whiteButtonOnPress={() => {
+              router.back();
+            }}
+            whiteButtonText="CANCEL"
           />
         )}
 
@@ -513,10 +514,10 @@ export default function WriteVinScreen() {
         description={`Are you sure you want to write VIN ${vinValue} to ${selectedEcu?.ecuName}?`}
         primaryButtonOnPress={handleConfirmFlash}
         primaryButtonText="CONFIRM"
-        secondaryButtonOnPress={handleCancelFlash}
-        secondaryButtonText="CANCEL"
         title="Confirm Write VIN"
         visible={showConfirmationOverlay}
+        whiteButtonOnPress={handleCancelFlash}
+        whiteButtonText="CANCEL"
       />
     </View>
   );

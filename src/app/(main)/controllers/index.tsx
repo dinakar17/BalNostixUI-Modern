@@ -111,6 +111,11 @@ export default function ControllersScreen() {
       // Normal config reset
       if (!isDongleStuckInBoot) {
         BluetoothModule.resetConfig(ecuIndex);
+        // EXPERIMENT: Send config reset 3 times instead of 1
+        // console.log("[Controllers] EXPERIMENT: Sending config reset 3 times");
+        // BluetoothModule.resetConfig(ecuIndex);
+        // BluetoothModule.resetConfig(ecuIndex);
+        // BluetoothModule.resetConfig(ecuIndex);
       }
 
       // Stuck in boot mode - read basic info directly

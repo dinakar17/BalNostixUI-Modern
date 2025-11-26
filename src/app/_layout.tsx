@@ -8,7 +8,8 @@ import {
   mobileReplayIntegration,
   wrap,
 } from "@sentry/react-native";
-import { Stack } from "expo-router";
+import { Stack, useSegments } from "expo-router";
+import { useEffect } from "react";
 import Toast from "react-native-toast-message";
 import { ENV } from "@/config/env";
 import { toastConfig } from "@/lib/toast-config";
@@ -42,6 +43,13 @@ if (ENV.IS_DEV) {
 }
 
 export default wrap(function Layout() {
+  const segments = useSegments();
+
+  useEffect(() => {
+    const currentScreen = segments.join("/");
+    console.log(`📍 Current Screen: /${currentScreen}`);
+  }, [segments]);
+
   return (
     <>
       <Stack screenOptions={{ headerShown: false }} />

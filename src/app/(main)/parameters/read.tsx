@@ -65,10 +65,10 @@ export default function ReadParametersScreen() {
         response.success &&
         response.data
       ) {
-        console.log(
-          "[ReadParameters] Read Parameters Response:",
-          response.data
-        );
+        // console.log(
+        //   "[ReadParameters] Read Parameters Response:",
+        //   response.data
+        // );
         setLoading(false);
         setList([...response.data]);
       }

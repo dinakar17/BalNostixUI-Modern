@@ -310,10 +310,10 @@ export default function WriteParametersScreen() {
         response.success &&
         response.data
       ) {
-        console.log(
-          "[WriteParameters] Write Parameters Response:",
-          response.data
-        );
+        // console.log(
+        //   "[WriteParameters] Write Parameters Response:",
+        //   response.data
+        // );
         handleWriteParametersResponse(response.data);
         return;
       }

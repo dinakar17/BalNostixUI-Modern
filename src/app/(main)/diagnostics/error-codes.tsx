@@ -353,7 +353,7 @@ export default function ErrorCodesScreen() {
   );
 
   return (
-    <>
+    <View className="flex-1">
       <CustomHeader
         leftButtonType="back"
         renderLeftButton
@@ -409,30 +409,28 @@ export default function ErrorCodesScreen() {
           )}
         />
       ) : (
-        <View className="items-center justify-center">
+        <View className="flex-1 items-center justify-center">
           {!loading && (
             <Text className="mt-2 font-bold text-xl">No error codes found</Text>
           )}
         </View>
       )}
 
-      <View className="mx-3 mt-4 mb-5 flex-row items-end justify-center">
-        <View className="mr-2 flex-1">
-          <PrimaryButton
-            onPress={() => {
-              getErrorCode();
-            }}
-            text="SCAN"
-          />
-        </View>
-        <View className="flex-1">
-          <WhiteButton
-            onPress={() => {
-              toggleOverlay();
-            }}
-            text="CLEAR"
-          />
-        </View>
+      <View className="mx-4 mb-6 flex-row gap-3">
+        <PrimaryButton
+          className="flex-1"
+          onPress={() => {
+            getErrorCode();
+          }}
+          text="SCAN"
+        />
+        <WhiteButton
+          className="flex-1"
+          onPress={() => {
+            toggleOverlay();
+          }}
+          text="CLEAR"
+        />
       </View>
 
       {/* Clear Error Type Selection Modal */}
@@ -486,6 +484,6 @@ export default function ErrorCodesScreen() {
       </Modal>
 
       <OverlayLoading loading={loading} />
-    </>
+    </View>
   );
 }

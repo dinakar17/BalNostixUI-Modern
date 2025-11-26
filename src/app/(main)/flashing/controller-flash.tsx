@@ -497,7 +497,7 @@ export default function ControllerFlashScreen() {
     if (isFlashing) {
       return true;
     }
-    router.push("/(main)/controllers/operations");
+    router.replace("/(main)/controllers/operations");
     return true;
   }, [isFlashing]);
 
@@ -536,7 +536,7 @@ export default function ControllerFlashScreen() {
             onPress={() => {
               uploadLogs();
               postDongleFlash();
-              router.push("/(main)/controllers/operations");
+              router.replace("/(main)/controllers/operations");
             }}
             text="Okay"
           />
@@ -576,7 +576,7 @@ export default function ControllerFlashScreen() {
                 secondDescription={`Ensure that ${(selectedEcu as unknown as { oldHexFileName: string })?.oldHexFileName} is associated with ${selectedEcu?.ecuName}?`}
                 title="NOTE"
                 whiteButtonOnPress={() =>
-                  router.push("/(main)/controllers/operations")
+                  router.replace("/(main)/controllers/operations")
                 }
                 whiteButtonText="CANCEL"
               />
@@ -647,7 +647,7 @@ export default function ControllerFlashScreen() {
                 <PrimaryButton
                   onPress={() => {
                     postDongleFlash();
-                    router.push("/(main)/flashing/flash-success");
+                    router.replace("/(main)/flashing/flash-success");
                   }}
                   text="OKAY"
                 />

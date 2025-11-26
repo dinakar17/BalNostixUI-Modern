@@ -374,11 +374,11 @@ export default function WriteBinScreen() {
                   toggleOverlay();
                 }}
                 primaryButtonText="FLASH BIN"
-                secondaryButtonOnPress={() => {
+                title="NOTE"
+                whiteButtonOnPress={() => {
                   router.back();
                 }}
-                secondaryButtonText="CANCEL"
-                title="NOTE"
+                whiteButtonText="CANCEL"
               />
             )}
 

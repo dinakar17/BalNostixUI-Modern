@@ -200,7 +200,11 @@ export default function MainLayout() {
             updateIsDongleDisconnectWarning();
           }
           // Handle SerialNo response
-          else if (jsonData.value.includes("SerialNo")) {
+          else if (
+            jsonData.value &&
+            typeof jsonData.value === "string" &&
+            jsonData.value.includes("SerialNo")
+          ) {
             const indexOfSerial = jsonData.value.indexOf(":");
             const serialNo = jsonData.value.substring(indexOfSerial + 1);
             console.log("[MainLayout] Dongle Serial Number:", serialNo);

@@ -93,7 +93,7 @@ export default function ControllerOperationsScreen() {
     try {
       const ver = await BluetoothModule.getDongleAppVersion();
       const res = await BluetoothModule.getDongleVersionInfo();
-      console.log(`setDongleWarningMessage=${res} ver=${ver}`);
+      console.log(`[Operations] setDongleWarningMessage=${res} ver=${ver}`);
 
       if (res === true) {
         setDongleInfoMessage([
@@ -312,7 +312,7 @@ export default function ControllerOperationsScreen() {
       <CustomHeader
         leftButtonFunction={() => {
           saveLogs();
-          router.back();
+          router.push("/(main)/controllers");
         }}
         leftButtonType="back"
         renderLeftButton={false}
