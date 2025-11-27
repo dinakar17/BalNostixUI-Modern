@@ -25,10 +25,6 @@ import type { TileItem } from "@/components/tiles/tile";
 import { Tiles } from "@/components/tiles/tiles";
 import { CustomHeader } from "@/components/ui/header";
 import { OverlayLoading, OverlayView } from "@/components/ui/overlay";
-import {
-  cleanupOldCollectionData,
-  isCollectionNeeded,
-} from "@/lib/offline-analytics";
 import { toastError } from "@/lib/toast";
 import { handleJsonParse } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -45,20 +41,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Check if an ECU should trigger offline analytics collection
- */
-function isTargetECUForCollection(ecuName: string): boolean {
-  const name = ecuName.toLowerCase();
-  return name.includes("vcu") || name.includes("bms");
-}
-
 export default function ControllersScreen() {
   const { dataTransferMode } = useAuthStore();
   const {
     controllersData,
     isDonglePhase3State,
-    vin,
     isDongleStuckInBoot,
     setSelectedEcu,
     setControllersUpdatedData,
@@ -69,7 +56,6 @@ export default function ControllersScreen() {
   } = useDataTransferStore();
 
   const [showDisconnectOverlay, setShowDisconnectOverlay] = useState(false);
-  const [isCollectionMode, setIsCollectionMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedEcuIndex, setSelectedEcuIndex] = useState<number | null>(null);
   const [eventEmitter, setEventEmitter] = useState<NativeEventEmitter | null>(
@@ -163,81 +149,15 @@ export default function ControllersScreen() {
   };
 
   // ============================================
-  // Offline Analytics Collection Logic
-  // ============================================
-
-  /**
-   * Scan controllers for any that need offline analytics collection
-   * Starts from specified index to allow resuming after previous collection
-   */
-  const scanForCollectionNeeds = async (
-    vinNumber: string,
-    startIndex = 0
-  ): Promise<boolean> => {
-    console.log(
-      `[Controllers] Scanning for OA needs - Start: ${startIndex}, Total: ${controllersData.length} for VIN: ${vinNumber}`
-    );
-
-    for (let i = startIndex; i < controllersData.length; i++) {
-      const ecu = controllersData[i];
-
-      // Only check VCU/BMS controllers
-      if (!isTargetECUForCollection(ecu.ecuName)) {
-        continue;
-      }
-
-      console.log(`[Controllers] Checking ${ecu.ecuName} at index ${i}`);
-
-      // Setup and check if collection needed
-      const needsCollection = await setupECU(i, true);
-
-      if (needsCollection) {
-        console.log(`[Controllers] Collection needed for ${ecu.ecuName}`);
-        return true;
-      }
-    }
-
-    console.log("[Controllers] No collection needed");
-    return false;
-  };
-
-  /**
-   * Initialize offline analytics collection check on app launch
-   * Cleans up old data and triggers collection if needed
-   */
-  const initializeCollectionCheck = async (
-    vinNumber: string
-  ): Promise<void> => {
-    console.log(`[Controllers] Initializing OA check for VIN: ${vinNumber}`);
-
-    // Clean up old records (keep only today's data)
-    const hasStaleData = cleanupOldCollectionData();
-
-    // Scan for any ECUs that need collection
-    const needsCollection = await scanForCollectionNeeds(vinNumber);
-
-    if (!(needsCollection || hasStaleData)) {
-      setIsLoading(false);
-    }
-
-    setIsCollectionMode(needsCollection);
-  };
-
-  // ============================================
   // ECU Setup & Navigation
   // ============================================
 
   /**
-   * Setup ECU for operations or offline analytics collection
+   * Setup ECU for manual controller selection
    *
    * @param ecuIndex Index in controllersData array
-   * @param checkCollectionNeeds If true, validates if OA collection is needed
-   * @returns true if should navigate to collection screen, false otherwise
    */
-  const setupECU = async (
-    ecuIndex: number,
-    checkCollectionNeeds = false
-  ): Promise<boolean> => {
+  const setupECU = async (ecuIndex: number): Promise<void> => {
     try {
       console.log(`[Controllers] Setting up ECU at index: ${ecuIndex}`);
 
@@ -253,38 +173,8 @@ export default function ControllersScreen() {
         await BluetoothModule.getUpdatedEcuRecords(ecuIndex);
 
       console.log(
-        `[Controllers] ECU data fetched - Name: ${updatedECUData?.ecuName}, Supports OA: ${updatedECUData?.isEEDumpOperation}`
+        `[Controllers] ECU data fetched - Name: ${updatedECUData?.ecuName}`
       );
-
-      // Check if offline analytics collection is needed
-      if (checkCollectionNeeds) {
-        let needsCollection = false;
-        let reason = "";
-
-        // Check if ECU supports offline analytics
-        if (!updatedECUData.isEEDumpOperation) {
-          reason = "ECU does not support OA";
-          console.log(
-            `[OA] ⏭️  COLLECTION SKIPPED | VIN: ${vin} | ECU: ${updatedECUData.ecuName} | Reason: ${reason}`
-          );
-        } else if (updatedECUData.isForceEachTimeOA) {
-          // Force collection if configured
-          reason = "Force collection enabled for this ECU";
-          needsCollection = true;
-          console.log(
-            `[OA] ✅ COLLECTION NEEDED | VIN: ${vin} | ECU: ${updatedECUData.ecuName} | Reason: ${reason}`
-          );
-        } else {
-          // Check if collection is needed based on storage
-          needsCollection = isCollectionNeeded(vin, updatedECUData.ecuName);
-        }
-
-        if (!needsCollection) {
-          return false;
-        }
-
-        setIsCollectionMode(true);
-      }
 
       // Update store with latest ECU data
       const updatedController = setControllersUpdatedData(
@@ -299,12 +189,9 @@ export default function ControllersScreen() {
 
       // Trigger config reset workflow
       await resetECUConfig(ecuIndex);
-
-      return checkCollectionNeeds;
     } catch (error) {
       console.error("[Controllers] Setup ECU failed:", error);
       setIsLoading(false);
-      return false;
     }
   };
 
@@ -374,7 +261,7 @@ export default function ControllersScreen() {
   };
 
   /**
-   * Basic info read completed - determine next navigation
+   * Basic info read completed - navigate to operations screen
    */
   const handleBasicInfoReadEvent = (): void => {
     isConfigResetInProgress = false;
@@ -386,23 +273,9 @@ export default function ControllersScreen() {
 
     const selectedECU = controllersData[selectedEcuIndex];
 
-    console.log(
-      `[Controllers] Basic info read - ECU: ${selectedECU.ecuName}, Collection mode: ${isCollectionMode}`
-    );
+    console.log(`[Controllers] Basic info read - ECU: ${selectedECU.ecuName}`);
 
-    // In collection mode - navigate to dump screen or continue scanning
-    if (isCollectionMode) {
-      if (selectedECU.isEEDumpOperation) {
-        router.push("/(main)/diagnostics/ecu-dump");
-        setIsCollectionMode(false);
-      } else {
-        // Continue scanning next controllers
-        scanForCollectionNeeds(vin, selectedEcuIndex + 1);
-      }
-      return;
-    }
-
-    // Normal mode - navigate to operations screen
+    // Navigate to operations screen
     router.push("/controllers/operations");
   };
 
@@ -468,30 +341,24 @@ export default function ControllersScreen() {
   /**
    * Subscribe to native events from Bluetooth/USB modules
    */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: dependencies are correct
-  useEffect(() => {
-    if (!eventEmitter) {
-      return;
-    }
+  useFocusEffect(
+    // biome-ignore lint/correctness/useExhaustiveDependencies: dependencies are correct
+    useCallback(() => {
+      if (!eventEmitter) {
+        return;
+      }
 
-    // Subscribe to native events
-    const subscription = eventEmitter.addListener(
-      "updateUI",
-      handleNativeEvents
-    );
+      // Subscribe to native events
+      const subscription = eventEmitter.addListener(
+        "updateUI",
+        handleNativeEvents
+      );
 
-    return () => {
-      subscription.remove();
-    };
-  }, [eventEmitter, isCollectionMode, selectedEcuIndex]);
-
-  /**
-   * Initialize offline analytics check on mount
-   */
-  // biome-ignore lint/correctness/useExhaustiveDependencies: needed only on mount
-  useEffect(() => {
-    initializeCollectionCheck(vin);
-  }, []);
+      return () => {
+        subscription.remove();
+      };
+    }, [eventEmitter, selectedEcuIndex])
+  );
 
   /**
    * Setup hardware back button handler

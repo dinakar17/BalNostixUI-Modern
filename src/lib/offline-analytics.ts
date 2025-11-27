@@ -285,3 +285,97 @@ export function hasAnyCollectionNeeded(
     return isCollectionNeeded(vinNumber, ecuName);
   });
 }
+
+/**
+ * Check if an ECU should trigger offline analytics collection
+ */
+function isTargetECUForCollection(ecuName: string): boolean {
+  const name = ecuName.toLowerCase();
+  return name.includes("vcu") || name.includes("bms");
+}
+
+/**
+ * Determine navigation path based on OA collection needs
+ * Returns the ECU index that needs collection, or null if no collection needed
+ *
+ * IMPORTANT: This function only identifies VCU/BMS controllers that are candidates for OA collection.
+ * The actual check for isEEDumpOperation and isForceEachTimeOA must be done AFTER
+ * fetching UDS parameters and getting updated ECU records.
+ *
+ * @param vinNumber Vehicle identification number
+ * @param controllersData Array of controller data from store
+ * @returns Object with needsCollection flag and ecuIndex if collection needed
+ */
+export function determineNavigationForOACollection(
+  vinNumber: string,
+  controllersData: Array<{
+    ecuName: string;
+    index: number;
+  }>
+): {
+  needsCollection: boolean;
+  ecuIndex: number | null;
+  ecuName: string | null;
+} {
+  console.log(
+    `[OA] Determining navigation for VIN: ${vinNumber}, Controllers: ${controllersData.length}`
+  );
+
+  // Clean up old records first
+  cleanupOldCollectionData();
+
+  // Scan for any VCU/BMS ECU that might need collection
+  for (let i = 0; i < controllersData.length; i++) {
+    const ecu = controllersData[i];
+
+    // Only check VCU/BMS controllers
+    if (!isTargetECUForCollection(ecu.ecuName)) {
+      console.log(`[OA] Skipping ${ecu.ecuName} - not a target ECU`);
+      continue;
+    }
+
+    console.log(`[OA] Found potential candidate: ${ecu.ecuName} at index ${i}`);
+    // Return first VCU/BMS found - caller must fetch UDS params and check if collection needed
+    return { needsCollection: true, ecuIndex: i, ecuName: ecu.ecuName };
+  }
+
+  console.log("[OA] ⏭️  No VCU/BMS controllers found");
+  return { needsCollection: false, ecuIndex: null, ecuName: null };
+}
+
+/**
+ * Check if OA collection is needed for a specific ECU after fetching updated data
+ * This should be called AFTER UDSParameter and getUpdatedEcuRecords
+ *
+ * @param vinNumber Vehicle identification number
+ * @param updatedECUData Updated ECU data with isEEDumpOperation and isForceEachTimeOA
+ * @returns true if collection is needed, false otherwise
+ */
+export function shouldCollectOAForECU(
+  vinNumber: string,
+  updatedECUData: {
+    ecuName: string;
+    isEEDumpOperation?: boolean;
+    isForceEachTimeOA?: boolean;
+  }
+): boolean {
+  // Check if ECU supports offline analytics
+  if (!updatedECUData.isEEDumpOperation) {
+    console.log(
+      `[OA] ⏭️  COLLECTION SKIPPED | VIN: ${vinNumber} | ECU: ${updatedECUData.ecuName} | Reason: ECU does not support OA`
+    );
+    return false;
+  }
+
+  // Force collection if configured
+  if (updatedECUData.isForceEachTimeOA) {
+    console.log(
+      `[OA] ✅ COLLECTION NEEDED | VIN: ${vinNumber} | ECU: ${updatedECUData.ecuName} | Reason: Force collection enabled`
+    );
+    return true;
+  }
+
+  // Check if collection is needed based on storage
+  const needsCollection = isCollectionNeeded(vinNumber, updatedECUData.ecuName);
+  return needsCollection;
+}

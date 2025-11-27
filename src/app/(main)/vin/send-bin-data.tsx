@@ -15,10 +15,13 @@ import { file } from "@/assets/images";
 import { CustomHeader } from "@/components/ui/header";
 import { ShadowBox } from "@/components/ui/shadow-box";
 import { colors } from "@/constants/colors";
-import { handleJsonParse } from "@/lib/utils";
+import {
+  determineNavigationForOACollection,
+  shouldCollectOAForECU,
+} from "@/lib/offline-analytics";
 import { useAuthStore } from "@/store/auth-store";
-import type { ControllerData } from "@/store/bluetooth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
+import type { ECURecord } from "@/types";
 
 const { BluetoothModule } = NativeModules;
 const eventEmitter = new NativeEventEmitter(BluetoothModule);
@@ -32,15 +35,98 @@ export default function SendBinDataScreen() {
   );
   const vin = useDataTransferStore((state) => state.vin);
   const userInfo = useAuthStore((state) => state.userInfo);
+  const setSelectedEcu = useDataTransferStore((state) => state.setSelectedEcu);
+  const setControllersUpdatedData = useDataTransferStore(
+    (state) => state.setControllersUpdatedData
+  );
 
   // Use refs to track listeners and timeout to avoid dependency issues in cleanup
   const binDataListenerRef = useRef<{ remove: () => void } | null>(null);
-  const resetConfigListenerRef = useRef<{ remove: () => void } | null>(null);
   const binTimeoutIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const navigateToControllerScreen = useCallback(() => {
     router.replace("/(main)/controllers");
   }, [router]);
+
+  const navigateBasedOnOANeeds = useCallback(async () => {
+    console.log(
+      "[SendBIN] Determining navigation based on OA collection needs"
+    );
+
+    // Check if any VCU/BMS controller exists that might need OA collection
+    const oaResult = determineNavigationForOACollection(vin, controllersData);
+
+    if (oaResult.needsCollection && oaResult.ecuIndex !== null) {
+      console.log(
+        `[SendBIN] Found candidate ECU: ${oaResult.ecuName}, checking if OA collection is needed`
+      );
+
+      try {
+        // Step 1: Fetch UDS parameters for this ECU
+        BluetoothModule.UDSParameter(oaResult.ecuIndex);
+
+        // Step 2: Get updated ECU data (this contains isEEDumpOperation and isForceEachTimeOA)
+        const updatedECUData = await BluetoothModule.getUpdatedEcuRecords(
+          oaResult.ecuIndex
+        );
+
+        console.log(
+          `[SendBIN] ECU data fetched - Name: ${(updatedECUData as { ecuName?: string })?.ecuName}, Supports OA: ${(updatedECUData as { isEEDumpOperation?: boolean })?.isEEDumpOperation}`
+        );
+
+        // Step 3: Check if OA collection is actually needed using updated data
+        const needsCollection = shouldCollectOAForECU(
+          vin,
+          updatedECUData as {
+            ecuName: string;
+            isEEDumpOperation?: boolean;
+            isForceEachTimeOA?: boolean;
+          }
+        );
+
+        if (needsCollection) {
+          console.log(
+            `[SendBIN] OA collection needed for ${oaResult.ecuName}, navigating to ecu-dump screen`
+          );
+
+          // Update store with latest ECU data
+          const updatedController = setControllersUpdatedData(
+            controllersData,
+            oaResult.ecuIndex as number,
+            updatedECUData as Record<string, unknown>
+          );
+
+          if (updatedController) {
+            setSelectedEcu(updatedController as unknown as ECURecord);
+          }
+
+          // Navigate to ecu-dump screen without config reset
+          router.replace("/(main)/diagnostics/ecu-dump");
+        } else {
+          console.log(
+            `[SendBIN] OA collection not needed for ${oaResult.ecuName}, navigating to controllers screen`
+          );
+          navigateToControllerScreen();
+        }
+      } catch (error) {
+        console.error("[SendBIN] Error checking OA collection needs:", error);
+        // Fall back to controllers screen
+        navigateToControllerScreen();
+      }
+    } else {
+      console.log(
+        "[SendBIN] No VCU/BMS controllers found, navigating to controllers screen"
+      );
+      navigateToControllerScreen();
+    }
+  }, [
+    vin,
+    controllersData,
+    router,
+    navigateToControllerScreen,
+    setSelectedEcu,
+    setControllersUpdatedData,
+  ]);
 
   // Clean up BIN data listeners and navigate
   const cleanupAndNavigate = useCallback(() => {
@@ -53,8 +139,8 @@ export default function SendBinDataScreen() {
       binTimeoutIdRef.current = null;
     }
     BluetoothModule.unsubscribeToReadBinData();
-    navigateToControllerScreen();
-  }, [navigateToControllerScreen]);
+    navigateBasedOnOANeeds();
+  }, [navigateBasedOnOANeeds]);
 
   // Handle BIN data response
   const onBinDataResponse = useCallback(
@@ -108,57 +194,6 @@ export default function SendBinDataScreen() {
     [cleanupAndNavigate, vin, userInfo]
   );
 
-  // Handle config reset response
-  const handleConfigResetResponse = useCallback(
-    (
-      response: { value: string },
-      configListener: { remove: () => void },
-      bmsRecord: ControllerData,
-      vcuRecord: ControllerData
-    ) => {
-      try {
-        const jsonData = handleJsonParse<{ value?: string }>(response.value);
-        if (typeof jsonData === "object" && jsonData?.value === "ConfigReset") {
-          console.log(
-            "BMS Config reset successful, now subscribing to readBinData"
-          );
-
-          // Clean up the reset config listener
-          configListener.remove();
-          resetConfigListenerRef.current = null;
-
-          // Now subscribe to readBinData events after successful reset
-          BluetoothModule.subscribeToReadBinData(
-            bmsRecord.index,
-            vcuRecord.index
-          );
-
-          // Set up event listener for BIN data response
-          const listener = eventEmitter.addListener(
-            "readBinData",
-            onBinDataResponse
-          );
-
-          // Store the listener reference for cleanup
-          binDataListenerRef.current = listener;
-
-          // Start reading BIN data
-          console.log("Starting BIN data read for VCU and BMS");
-        }
-      } catch (error) {
-        console.log("Error handling config reset response:", error);
-        configListener.remove();
-        resetConfigListenerRef.current = null;
-        if (binTimeoutIdRef.current) {
-          clearTimeout(binTimeoutIdRef.current);
-          binTimeoutIdRef.current = null;
-        }
-        navigateToControllerScreen();
-      }
-    },
-    [onBinDataResponse, navigateToControllerScreen]
-  );
-
   // Send BIN data to SAP portal
   const sendBINToSAP = useCallback(async () => {
     try {
@@ -167,7 +202,7 @@ export default function SendBinDataScreen() {
         console.log(
           "BIN operation timeout after 20 seconds, proceeding with navigation"
         );
-        navigateToControllerScreen();
+        navigateBasedOnOANeeds();
         binTimeoutIdRef.current = null;
       }, 20_000);
 
@@ -183,25 +218,23 @@ export default function SendBinDataScreen() {
       );
 
       if (vcuRecord && bmsRecord) {
-        // Reset the BMS controller config before reading BIN data
-        console.log("Resetting BMS controller config before reading BIN data");
-        BluetoothModule.resetConfig(bmsRecord.index);
+        // Directly subscribe to readBinData events
+        console.log("Directly Subscribing to readBinData for VCU and BMS");
+        BluetoothModule.subscribeToReadBinData(
+          bmsRecord.index,
+          vcuRecord.index
+        );
 
-        // Set up event listener for config reset response
-        const configListener = eventEmitter.addListener(
-          "updateUI",
-          (response: { value: string }) => {
-            handleConfigResetResponse(
-              response,
-              configListener,
-              bmsRecord,
-              vcuRecord
-            );
-          }
+        // Set up event listener for BIN data response
+        const listener = eventEmitter.addListener(
+          "readBinData",
+          onBinDataResponse
         );
 
         // Store the listener reference for cleanup
-        resetConfigListenerRef.current = configListener;
+        binDataListenerRef.current = listener;
+
+        console.log("Starting BIN data read for VCU and BMS");
       } else {
         // Upload the error to the SAP API
         console.log("VCU or BMS record not found");
@@ -227,7 +260,7 @@ export default function SendBinDataScreen() {
           clearTimeout(binTimeoutIdRef.current);
           binTimeoutIdRef.current = null;
         }
-        navigateToControllerScreen();
+        navigateBasedOnOANeeds();
         throw new Error("Required ECU records not found");
       }
     } catch (error) {
@@ -236,14 +269,14 @@ export default function SendBinDataScreen() {
         clearTimeout(binTimeoutIdRef.current);
         binTimeoutIdRef.current = null;
       }
-      navigateToControllerScreen();
+      navigateBasedOnOANeeds();
     }
   }, [
     controllersData,
     vin,
     userInfo,
-    handleConfigResetResponse,
-    navigateToControllerScreen,
+    onBinDataResponse,
+    navigateBasedOnOANeeds,
   ]);
 
   useFocusEffect(
@@ -264,9 +297,6 @@ export default function SendBinDataScreen() {
         // Clean up all listeners using refs
         if (binDataListenerRef.current) {
           binDataListenerRef.current.remove();
-        }
-        if (resetConfigListenerRef.current) {
-          resetConfigListenerRef.current.remove();
         }
         if (binTimeoutIdRef.current) {
           clearTimeout(binTimeoutIdRef.current);

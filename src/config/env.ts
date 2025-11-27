@@ -2,8 +2,7 @@
 
 type Environment = "development" | "uat" | "production";
 
-const ENV_NAME =
-  (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) || "development";
+const ENV_NAME = (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) || "uat";
 
 const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.0.84";
 const APP_RELEASE_DATE = process.env.EXPO_PUBLIC_APP_RELEASE_DATE || "1";

@@ -105,6 +105,11 @@ const config: ExpoConfig = {
       "READ_EXTERNAL_STORAGE",
     ],
   },
+  extra: {
+    eas: {
+      projectId: "9eedb854-ebab-4441-acbf-8f8638d87a2b",
+    },
+  },
 };
 
 export default config;

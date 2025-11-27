@@ -577,7 +577,7 @@ export default function ECUDumpScreen() {
     if (showFailureModal) {
       setShowFailureModal(false);
     }
-    router.back();
+    router.replace("/(main)/controllers");
   };
 
   // ============================================
@@ -659,7 +659,7 @@ export default function ECUDumpScreen() {
               "Please wait for the offline analytics collection to complete"
             );
           } else {
-            router.back();
+            router.replace("/(main)/controllers");
           }
         }}
         leftButtonType="back"
