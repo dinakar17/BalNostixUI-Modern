@@ -79,9 +79,7 @@ if (FLAVOR_NAME === "dev" || FLAVOR_NAME === "uat") {
  * Get SAP API headers
  */
 function getSAPHeaders(): Record<string, string> {
-  const authString = Buffer.from(
-    `${DEFAULT_AUTH.username}:${DEFAULT_AUTH.password}`
-  ).toString("base64");
+  const authString = btoa(`${DEFAULT_AUTH.username}:${DEFAULT_AUTH.password}`);
   return {
     "Content-Type": "application/json",
     "api-key": DEFAULT_API_KEY,

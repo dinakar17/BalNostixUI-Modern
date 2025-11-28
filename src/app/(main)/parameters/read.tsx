@@ -1,4 +1,4 @@
-import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   BackHandler,
@@ -14,6 +14,7 @@ import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
 import { OverlayLoading } from "@/components/ui/overlay";
 import { ShadowBox } from "@/components/ui/shadow-box";
+import { Tabs } from "@/components/ui/tabs";
 import { toastError } from "@/lib/toast";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 import type { DIDParameter } from "@/types/ecu";
@@ -30,27 +31,28 @@ type ReadParameterResponse = {
 export default function ReadParametersScreen() {
   const params = useLocalSearchParams<{
     ecuIndex: string;
-    groupName: string;
   }>();
   const { selectedEcu, isDonglePhase3State, updateDongleToDisconnected } =
     useDataTransferStore();
 
-  const { groupName, ecuIndex } = params;
+  const { ecuIndex } = params;
 
   const [loading, setLoading] = useState(false);
   const [autoUpdate, setAutoUpdate] = useState(false);
   const [isReadParameterRunning, setIsReadParameterRunning] = useState(true);
   const [list, setList] = useState<DIDParameter[]>([]);
+  const [availableGroups, setAvailableGroups] = useState<string[]>([]);
+  const [activeGroup, setActiveGroup] = useState<string>("");
 
   const eventEmitter = new NativeEventEmitter(BluetoothModule);
 
-  const getList = () => {
+  const getList = (groupName: string) => {
     try {
       setLoading(true);
       setIsReadParameterRunning(true);
       BluetoothModule.getReadParameters(
         Number.parseInt(ecuIndex || "0", 10),
-        (groupName || "").replace(" ", "_")
+        groupName.replace(" ", "_")
       );
     } catch (error) {
       toastError("Failed to get read parameters");
@@ -102,9 +104,45 @@ export default function ReadParametersScreen() {
       Number.parseInt(ecuIndex || "0", 10)
     );
     setAutoUpdate(isAutoUpdate);
-    if (isAutoUpdate && !isReadParameterRunning) {
+    if (isAutoUpdate && !isReadParameterRunning && activeGroup) {
       console.log("[ReadParameters] call read again done");
-      getList();
+      getList(activeGroup);
+    }
+  };
+
+  // Fetch available groups
+  const fetchGroups = async () => {
+    try {
+      setLoading(true);
+      const fetchedGroups = await BluetoothModule.getListOfDidGroups(
+        Number.parseInt(ecuIndex || "0", 10)
+      );
+      if (fetchedGroups && fetchedGroups.length > 0) {
+        setAvailableGroups(fetchedGroups);
+        // Default to first group (Group A)
+        const defaultGroup = fetchedGroups[0];
+        setActiveGroup(defaultGroup);
+        getList(defaultGroup);
+      } else {
+        setLoading(false);
+      }
+    } catch (error) {
+      console.log("[ReadParameters] Error fetching groups:", error);
+      toastError("Failed to fetch parameter groups");
+      setLoading(false);
+    }
+  };
+
+  // Handle tab change
+  const handleTabChange = (groupId: string) => {
+    if (groupId !== activeGroup) {
+      setActiveGroup(groupId);
+      setAutoUpdate(false);
+      BluetoothModule.setReadParamAutoRefresh(
+        false,
+        Number.parseInt(ecuIndex || "0", 10)
+      );
+      getList(groupId);
     }
   };
 
@@ -136,7 +174,7 @@ export default function ReadParametersScreen() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: we only want to run this once on mount
   useEffect(() => {
-    getList();
+    fetchGroups();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -175,7 +213,7 @@ export default function ReadParametersScreen() {
 
     // Compare group names (case-insensitive, with underscores)
     return (
-      (groupName || "").replace(" ", "_").toLowerCase() ===
+      activeGroup.replace(" ", "_").toLowerCase() ===
       groupNameFromEcuRecord.toLowerCase()
     );
   };
@@ -185,7 +223,7 @@ export default function ReadParametersScreen() {
     return (
       <PrimaryButton
         inactive={isDisabled}
-        onPress={getList}
+        onPress={() => activeGroup && getList(activeGroup)}
         text="Scan Again"
       />
     );
@@ -194,6 +232,7 @@ export default function ReadParametersScreen() {
   return (
     <>
       <CustomHeader
+        leftButtonFunction={() => router.back()}
         leftButtonType="back"
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
@@ -219,6 +258,18 @@ export default function ReadParametersScreen() {
           </View>
         )}
       </View>
+
+      {/* Tabs for groups */}
+      {availableGroups.length > 0 && (
+        <Tabs
+          activeTab={activeGroup}
+          onTabChange={handleTabChange}
+          tabs={availableGroups.map((group) => ({
+            id: group,
+            label: group,
+          }))}
+        />
+      )}
 
       {list?.length !== 0 ? (
         <>

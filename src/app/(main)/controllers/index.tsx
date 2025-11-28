@@ -24,7 +24,7 @@ import { cpu } from "@/assets/images";
 import type { TileItem } from "@/components/tiles/tile";
 import { Tiles } from "@/components/tiles/tiles";
 import { CustomHeader } from "@/components/ui/header";
-import { OverlayLoading, OverlayView } from "@/components/ui/overlay";
+import { OverlayLoading } from "@/components/ui/overlay";
 import { toastError } from "@/lib/toast";
 import { handleJsonParse } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
@@ -55,7 +55,6 @@ export default function ControllersScreen() {
     updateIsDongleDeviceInfoSet,
   } = useDataTransferStore();
 
-  const [showDisconnectOverlay, setShowDisconnectOverlay] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedEcuIndex, setSelectedEcuIndex] = useState<number | null>(null);
   const [eventEmitter, setEventEmitter] = useState<NativeEventEmitter | null>(
@@ -300,17 +299,9 @@ export default function ControllersScreen() {
   // ============================================
 
   /**
-   * Handle back button press - show disconnect confirmation
+   * Handle back button press - disconnect from device
    */
   const handleBackButton = (): boolean => {
-    setShowDisconnectOverlay(true);
-    return true;
-  };
-
-  /**
-   * Disconnect from device and reset state
-   */
-  const handleDisconnect = (): void => {
     if (dataTransferMode === "USB") {
       USBModule.resetUSBPermission();
     }
@@ -320,6 +311,8 @@ export default function ControllersScreen() {
     } else {
       disconnectFromDevice();
     }
+
+    return true;
   };
 
   // ============================================
@@ -391,18 +384,6 @@ export default function ControllersScreen() {
           <Tiles data={controllersList} gap={32} overlayText />
         </View>
       </ScrollView>
-
-      {/* Disconnect Confirmation Overlay */}
-      {/* Todo: Remove this later. Keep it in the layout file */}
-      <OverlayView
-        description="The dongle will be disconnected and the device has to be manually turned off and turned on to connect again"
-        primaryButtonOnPress={handleDisconnect}
-        primaryButtonText="Yes"
-        title="Are you sure?"
-        visible={showDisconnectOverlay}
-        whiteButtonOnPress={() => setShowDisconnectOverlay(false)}
-        whiteButtonText="Cancel"
-      />
 
       <OverlayLoading loading={isLoading} />
     </View>

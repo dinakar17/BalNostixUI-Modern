@@ -202,7 +202,7 @@ export default function ForgotPasswordScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1"
+      style={{ flex: 1 }}
     >
       <ImageBackground className="flex-1" source={backgroundImg}>
         <ScrollView

@@ -421,6 +421,7 @@ export default function WriteParametersScreen() {
   return (
     <>
       <CustomHeader
+        leftButtonFunction={() => router.back()}
         leftButtonType="back"
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}

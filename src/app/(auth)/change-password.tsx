@@ -169,7 +169,7 @@ export default function ChangePasswordScreen() {
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      className="flex-1"
+      style={{ flex: 1 }}
     >
       <StatusBar barStyle="light-content" />
       <ImageBackground className="flex-1" source={backgroundImg}>

@@ -52,6 +52,7 @@ export default function SpecialFunctionsScreen() {
       <CustomHeader
         leftButtonFunction={() => router.back()}
         leftButtonType="back"
+        renderLeftButton={true}
         title="Special Function"
       />
 

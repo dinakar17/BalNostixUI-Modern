@@ -1,5 +1,6 @@
 import Icon from "@expo/vector-icons/EvilIcons";
 import { Image } from "expo-image";
+import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   FlatList,
@@ -355,6 +356,7 @@ export default function ErrorCodesScreen() {
   return (
     <View className="flex-1">
       <CustomHeader
+        leftButtonFunction={() => router.back()}
         leftButtonType="back"
         renderLeftButton
         renderRightButton={isDonglePhase3State}

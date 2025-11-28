@@ -1,5 +1,3 @@
-// config/env.ts
-
 type Environment = "development" | "uat" | "production";
 
 const ENV_NAME = (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) || "uat";

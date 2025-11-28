@@ -21,7 +21,7 @@ import { handleJsonParse } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 import type { UpdateUINotification } from "@/types/update-ui.types";
-import DongleShutdownModal from "./modals/dongle-shutdown-success";
+import DongleShutDownSucess from "./modals/dongle-shutdown-success";
 import NoBluetoothScreen from "./modals/no-bluetooth";
 
 const { BluetoothModule } = NativeModules;
@@ -125,7 +125,7 @@ export default function MainLayout() {
       updateDongleToNotDisconnect();
       setIsVisiblePower(false);
       setIsVisible(true);
-    }, 6000);
+    }, 4000);
   };
 
   // Handle Bluetooth status changes
@@ -555,7 +555,7 @@ export default function MainLayout() {
 
   // Render special screens for certain states
   if (isDongleDisconnectWarning && isDeviceConnected) {
-    return <DongleShutdownModal />;
+    return <DongleShutDownSucess />;
   }
 
   if (!bluetoothStatus) {

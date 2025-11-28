@@ -221,20 +221,6 @@ export default function ControllerFlashScreen() {
       }
 
       await uploadLogsOnSuccess();
-
-      // Log successful flash completion to Sentry
-      captureMessage("Controller flash completed successfully", {
-        level: "info",
-        tags: {
-          operation: "controller_flash_success",
-          ecu_name: selectedEcu?.ecuName || "unknown",
-        },
-        extra: {
-          ecu_index: selectedEcu?.index,
-          hex_file: ecu.oldHexFileName,
-          vin_number: ecu.vinNumber,
-        },
-      });
     } catch (error: unknown) {
       console.log("[ControllerFlash] Post success flash error:", error);
       captureException(error, {

@@ -63,7 +63,7 @@ const config: ExpoConfig = {
     tsconfigPaths: true,
   },
   orientation: "portrait",
-  icon: "./src/assets/icon.png",
+  icon: "./src/assets/ic_launcher.png",
   userInterfaceStyle: "light",
   splash: {
     image: "./src/assets/splash.png",

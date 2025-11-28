@@ -1,4 +1,3 @@
-import Icon from "@expo/vector-icons/EvilIcons";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -8,7 +7,6 @@ import {
   type ImageSourcePropType,
   Modal,
   NativeModules,
-  Pressable,
   ScrollView,
   Text,
   View,
@@ -51,9 +49,7 @@ export default function ControllerOperationsScreen() {
     updateIsDongleDeviceInfoSet,
   } = useDataTransferStore();
 
-  const [isVisible, setIsVisible] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [didList, setDidList] = useState<string[]>([]);
   const [isBootUpdate, setBootUpdate] = useState(false);
   const [dongleInfoMessage, setDongleInfoMessage] = useState<{ key: string }[]>(
     []
@@ -68,23 +64,6 @@ export default function ControllerOperationsScreen() {
     } catch (error) {
       console.log("Error checking boot update:", error);
       return false;
-    }
-  };
-
-  // Get DID list for parameters
-  const getDidList = async () => {
-    try {
-      setLoading(true);
-      const fetchedDidList = await BluetoothModule.getListOfDidGroups(
-        selectedEcu.index
-      );
-      if (fetchedDidList) {
-        setDidList([...fetchedDidList]);
-        setLoading(false);
-      }
-    } catch (error) {
-      console.log("Error getting DID list:", error);
-      setLoading(false);
     }
   };
 
@@ -114,10 +93,6 @@ export default function ControllerOperationsScreen() {
     }
   };
 
-  const toggleOverlay = () => {
-    setIsVisible(!isVisible);
-  };
-
   // Operations list
   const list: TileItem[] = [
     {
@@ -138,7 +113,10 @@ export default function ControllerOperationsScreen() {
       image: visibility,
       isActive: selectedEcu.isReadParameterEnabled,
       function: () => {
-        toggleOverlay();
+        router.push({
+          pathname: "/(main)/parameters/read",
+          params: { ecuIndex: selectedEcu.index },
+        });
       },
     },
     {
@@ -262,7 +240,7 @@ export default function ControllerOperationsScreen() {
     ) {
       isBootUpdateRequired();
     }
-    getDidList();
+    setLoading(false);
   }, []);
 
   // Dongle version warning overlay
@@ -315,7 +293,7 @@ export default function ControllerOperationsScreen() {
           router.push("/(main)/controllers");
         }}
         leftButtonType="back"
-        renderLeftButton={false}
+        renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
         rightButtonFunction={updateDongleToDisconnected}
         rightButtonType="settings"
@@ -353,65 +331,6 @@ export default function ControllerOperationsScreen() {
           </View>
         </Modal>
       )}
-
-      {/* Read Parameters Group Selection */}
-      <Modal
-        animationType="fade"
-        onRequestClose={toggleOverlay}
-        transparent
-        visible={isVisible}
-      >
-        <Pressable
-          className="flex-1 items-center justify-center bg-black/50"
-          onPress={toggleOverlay}
-        >
-          <Pressable
-            className="w-[80%] rounded-lg bg-white py-5"
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View>
-              <View>
-                <Icon
-                  color="#000"
-                  name="close"
-                  onPress={() => setIsVisible(false)}
-                  size={32}
-                  style={{
-                    alignSelf: "flex-end",
-                    paddingBottom: 8,
-                    paddingRight: 16,
-                  }}
-                />
-              </View>
-              <Text className="mx-4 mb-4 text-center text-xl">
-                Select the group of data identifiers you want to read
-              </Text>
-              <View>
-                {didList.map((item) => (
-                  <View className="border-gray-200 border-b py-4" key={item}>
-                    <Pressable
-                      onPress={() => {
-                        router.push({
-                          pathname: "/(main)/parameters/read",
-                          params: {
-                            ecuIndex: selectedEcu.index,
-                            groupName: item,
-                          },
-                        });
-                        toggleOverlay();
-                      }}
-                    >
-                      <Text className="text-center font-bold text-xl">
-                        {item}
-                      </Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       <OverlayLoading loading={loading} />
       <DisplayWarningForDongleVersion />

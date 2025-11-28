@@ -329,25 +329,6 @@ export default function ECUDumpScreen() {
 
           isCollectionActive = false;
 
-          // Log successful collection to Sentry
-          captureMessage(
-            "Offline analytics collection completed successfully",
-            {
-              level: "info",
-              tags: {
-                operation: "oa_collection_success",
-                ecu_name: selectedEcu?.ecuName || "unknown",
-              },
-              extra: {
-                ecu_index: selectedEcu?.index,
-                vin_number: vin,
-                collection_duration_ms: collectionStartTimeRef.current
-                  ? dayjs().valueOf() - collectionStartTimeRef.current.valueOf()
-                  : null,
-              },
-            }
-          );
-
           setProgress({
             state: "COMPLETE",
             percent: 100,
