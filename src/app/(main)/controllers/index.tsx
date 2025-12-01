@@ -3,7 +3,6 @@
  *
  * Main screen displaying available vehicle ECUs (Electronic Control Units).
  * Handles:
- * - Auto-triggering offline analytics collection for VCU/BMS on launch
  * - Manual ECU selection for diagnostics/operations
  * - Config reset and basic info reading workflow
  */
@@ -67,12 +66,8 @@ export default function ControllersScreen() {
     name: controller.ecuName,
     image: cpu,
     function: () => setupECU(controller.index),
-    isActive: true,
+    isActive: controller.is_update_required,
   }));
-
-  // ============================================
-  // ECU Configuration & Info Reading
-  // ============================================
 
   /**
    * Reset ECU configuration and handle special cases (Dongle self-flash)
@@ -147,10 +142,6 @@ export default function ControllersScreen() {
     }
   };
 
-  // ============================================
-  // ECU Setup & Navigation
-  // ============================================
-
   /**
    * Setup ECU for manual controller selection
    *
@@ -193,10 +184,6 @@ export default function ControllersScreen() {
       setIsLoading(false);
     }
   };
-
-  // ============================================
-  // Native Module Event Handlers
-  // ============================================
 
   /**
    * Handle updateUI events from native Bluetooth/USB modules
@@ -294,10 +281,6 @@ export default function ControllersScreen() {
     router.push("/flashing/controller-flash");
   };
 
-  // ============================================
-  // User Actions
-  // ============================================
-
   /**
    * Handle back button press - disconnect from device
    */
@@ -307,17 +290,13 @@ export default function ControllersScreen() {
     }
 
     if (isDonglePhase3State) {
-      updateDongleToDisconnected();
+      updateDongleToDisconnected(true);
     } else {
       disconnectFromDevice();
     }
 
     return true;
   };
-
-  // ============================================
-  // Effects
-  // ============================================
 
   /**
    * Initialize event emitter based on transfer mode
@@ -374,7 +353,7 @@ export default function ControllersScreen() {
         leftButtonType="back"
         renderLeftButton={false}
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
+        rightButtonFunction={() => updateDongleToDisconnected(true)}
         rightButtonType="settings"
         title="CONTROLLERS"
       />

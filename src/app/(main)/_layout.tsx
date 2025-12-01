@@ -21,7 +21,6 @@ import { handleJsonParse } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
 import type { UpdateUINotification } from "@/types/update-ui.types";
-import DongleShutDownSucess from "./modals/dongle-shutdown-success";
 import NoBluetoothScreen from "./modals/no-bluetooth";
 
 const { BluetoothModule } = NativeModules;
@@ -43,37 +42,19 @@ export default function MainLayout() {
   } = useAuthStore();
 
   // Subscribe to store state
-  const isDeviceConnected = useDataTransferStore(
-    (state) => state.isDeviceConnected
-  );
-  const isDongleToBeDisconnected = useDataTransferStore(
-    (state) => state.isDongleToBeDisconnected
-  );
-  const connectedDeviceName = useDataTransferStore(
-    (state) => state.connectedDeviceName
-  );
-  const isDongleDisconnectWarning = useDataTransferStore(
-    (state) => state.isDongleDisconnectWarning
-  );
-  const selectedEcu = useDataTransferStore((state) => state.selectedEcu);
-  const isSessionExpired = useDataTransferStore(
-    (state) => state.isSessionExpired
-  );
-  const disconnectFromDevice = useDataTransferStore(
-    (state) => state.disconnectFromDevice
-  );
-  const updateDongleToNotDisconnect = useDataTransferStore(
-    (state) => state.updateDongleToNotDisconnect
-  );
-  const updateIsDongleDisconnectWarning = useDataTransferStore(
-    (state) => state.updateIsDongleDisconnectWarning
-  );
-  const updateDongleSerialNo = useDataTransferStore(
-    (state) => state.updateDongleSerialNo
-  );
-  const updateIsSessionExpired = useDataTransferStore(
-    (state) => state.updateIsSessionExpired
-  );
+  const {
+    isDeviceConnected,
+    isDongleToBeDisconnected,
+    connectedDeviceName,
+    isDongleDisconnectWarning,
+    selectedEcu,
+    isSessionExpired,
+    disconnectFromDevice,
+    updateIsDongleDisconnectWarning,
+    updateDongleToDisconnected,
+    updateDongleSerialNo,
+    updateIsSessionExpired,
+  } = useDataTransferStore();
 
   // Local state
   const [bluetoothStatus, setBluetoothStatus] = useState(true);
@@ -105,7 +86,6 @@ export default function MainLayout() {
       timeoutIdRef.current = null;
     }
     setisfullScreenLoading(false);
-    updateDongleToNotDisconnect();
     setIsVisiblePower(false);
   };
 
@@ -122,7 +102,6 @@ export default function MainLayout() {
         `[MainLayout] Failed to disconnect with dongle. isDongleDisconnectWarning=${isDongleDisconnectWarning}`
       );
       setisfullScreenLoading(false);
-      updateDongleToNotDisconnect();
       setIsVisiblePower(false);
       setIsVisible(true);
     }, 4000);
@@ -146,7 +125,7 @@ export default function MainLayout() {
       ) {
         console.log("[MainLayout] deviceBluetoothDisconnected");
         dataTransferModeSelection("null");
-        setIsVisible(true);
+        setIsDataErrorModalVisible(true);
       }
     },
     [isDeviceConnected, dataTransferMode, connectedDeviceName]
@@ -161,7 +140,7 @@ export default function MainLayout() {
         dataTransferModeSelection("null");
         disconnectFromDevice();
         if (isDeviceConnected) {
-          setIsVisible(true);
+          setIsDataErrorModalVisible(true);
         }
       }
     },
@@ -197,7 +176,9 @@ export default function MainLayout() {
           if (jsonData.value === "KillBT_OK") {
             console.log("[MainLayout] Kill_BTOK received");
             cancelTimer();
-            updateIsDongleDisconnectWarning();
+            disconnectFromDevice();
+            updateDongleToDisconnected(false);
+            router.dismissTo("/(main)/devices/select");
           }
           // Handle SerialNo response
           else if (
@@ -387,11 +368,10 @@ export default function MainLayout() {
     <Modal
       animationType="fade"
       onRequestClose={() => {
-        setIsVisiblePower(false);
-        updateDongleToNotDisconnect();
+        updateDongleToDisconnected(false);
       }}
       transparent
-      visible={isVisiblePower}
+      visible={isDongleToBeDisconnected}
     >
       <View className="flex-1 items-center justify-center bg-black/50">
         <View className="w-[90%] rounded-lg bg-white p-4">
@@ -410,8 +390,7 @@ export default function MainLayout() {
             <View className="mr-2 flex-1">
               <PrimaryButton
                 onPress={() => {
-                  setIsVisiblePower(false);
-                  updateDongleToNotDisconnect();
+                  updateDongleToDisconnected(false);
                 }}
                 text="Cancel"
               />
@@ -426,66 +405,6 @@ export default function MainLayout() {
             </View>
           </View>
           <OverlayLoading loading={isfullScreenLoading} />
-        </View>
-      </View>
-    </Modal>
-  );
-
-  // Device disconnection modal
-  const DisplayOverlay = () => (
-    <Modal
-      animationType="fade"
-      onRequestClose={() => {
-        setIsVisible(false);
-        disconnectFromDevice();
-        dataTransferModeSelection("null");
-        initApplication();
-      }}
-      transparent
-      visible={isVisible}
-    >
-      <View className="flex-1 items-center justify-center bg-black/50">
-        <View className="w-[90%] rounded-lg bg-white p-4">
-          <View>
-            <TouchableOpacity
-              className="pr-2"
-              onPress={() => {
-                setIsVisible(false);
-                disconnectFromDevice();
-                dataTransferModeSelection("null");
-                initApplication();
-              }}
-            >
-              <Image
-                className="absolute top-0 right-0 h-10 w-10"
-                source={close_1}
-                style={{ resizeMode: "contain" }}
-              />
-            </TouchableOpacity>
-          </View>
-          <View className="items-center justify-around pt-12">
-            <Image
-              className="h-24 w-24 self-center"
-              source={noBluetooth}
-              style={{ resizeMode: "contain" }}
-            />
-            <Text className="my-4 px-4 text-center font-bold text-base">
-              {connectedDeviceName} device got disconnected. Please make sure to
-              turn off and turn on dongle.
-            </Text>
-            <View className="w-full">
-              <PrimaryButton
-                onPress={() => {
-                  setIsVisible(false);
-                  console.log("[MainLayout] CLOSE device disconnect modal");
-                  disconnectFromDevice();
-                  dataTransferModeSelection("null");
-                  initApplication();
-                }}
-                text="CLOSE"
-              />
-            </View>
-          </View>
         </View>
       </View>
     </Modal>
@@ -553,11 +472,6 @@ export default function MainLayout() {
     </Modal>
   );
 
-  // Render special screens for certain states
-  if (isDongleDisconnectWarning && isDeviceConnected) {
-    return <DongleShutDownSucess />;
-  }
-
   if (!bluetoothStatus) {
     return <NoBluetoothScreen />;
   }
@@ -566,7 +480,6 @@ export default function MainLayout() {
     <>
       <StatusBar style="dark" />
       {/* Global modals */}
-      <DisplayOverlay />
       <DisplayOverlayForDataError />
       <DisplayOverlayForDongleShutDown />
       <SessionExpiredModal isExpired={isSessionExpired} />

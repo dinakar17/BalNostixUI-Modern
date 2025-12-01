@@ -33,6 +33,7 @@ type AuthState = {
   // State
   isSignedIn: boolean;
   isLoading: boolean;
+  hasRehydrated: boolean;
   userInfo: UserInfo | null;
   isAppVersionVerified: boolean;
   isDataTransferModeSelected: boolean;
@@ -55,6 +56,7 @@ export const useAuthStore = create<AuthState>()(
       // Initial State
       isSignedIn: false,
       isLoading: true,
+      hasRehydrated: false,
       userInfo: null,
       isAppVersionVerified: false,
       isDataTransferModeSelected: false,
@@ -167,11 +169,21 @@ export const useAuthStore = create<AuthState>()(
         return (state, error) => {
           if (error) {
             console.error("Rehydration error:", error);
-            // Use the store's setState method directly
-            useAuthStore.setState({ isLoading: false, isSignedIn: false });
+            // Set default values on error
+            if (state) {
+              state.isLoading = false;
+              state.isSignedIn = false;
+              state.hasRehydrated = true;
+            }
           } else if (state) {
+            // Mark as rehydrated first
+            state.hasRehydrated = true;
             // After rehydration, check token validity
             state.checkTokenValidity();
+            console.log("Rehydration completed successfully");
+          } else {
+            // Handle case where state is undefined
+            console.warn("Rehydration completed but state is undefined");
           }
         };
       },

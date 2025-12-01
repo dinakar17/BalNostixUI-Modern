@@ -45,8 +45,7 @@ type DataTransferState = {
   disconnectFromDevice: () => void;
   updateDevice: () => void;
   updateBluetooth: () => void;
-  updateDongleToDisconnected: () => void;
-  updateDongleToNotDisconnect: () => void;
+  updateDongleToDisconnected: (value: boolean) => void;
   updateIsDongleDisconnectWarning: () => void;
   cancelIsDongleDisconnectWarning: () => void;
   setControllersData: (data: ControllerData[]) => void;
@@ -150,15 +149,9 @@ export const useDataTransferStore = create<DataTransferState>()((set) => ({
   },
 
   // Mark dongle to be disconnected
-  updateDongleToDisconnected: () => {
+  updateDongleToDisconnected: (value: boolean) => {
     console.log("Update isDongleToBeDisconnected true");
-    set({ isDongleToBeDisconnected: true });
-  },
-
-  // Cancel dongle disconnection
-  updateDongleToNotDisconnect: () => {
-    console.log("Update isDongleToBeDisconnected false");
-    set({ isDongleToBeDisconnected: false });
+    set({ isDongleToBeDisconnected: value });
   },
 
   // Show dongle disconnect warning

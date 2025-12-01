@@ -148,11 +148,7 @@ const getErrorMessage = (error: unknown): string => {
 
 export default function RootIndex() {
   const router = useRouter();
-  const {
-    appVersionVerification,
-    checkTokenValidity,
-    isLoading: isStoreLoading,
-  } = useAuthStore();
+  const { appVersionVerification, checkTokenValidity } = useAuthStore();
   const { trigger: verifyVersion } = useVerifyAppVersion();
   const tokenCounts = useRef(0);
 
@@ -291,7 +287,6 @@ export default function RootIndex() {
     handleVerificationError,
   ]);
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex initialization logic required
   const initializeApp = useCallback(async () => {
     try {
       console.log("=== INITIALIZATION STARTED ===");
@@ -306,14 +301,6 @@ export default function RootIndex() {
       console.log("Initializing USBModule...");
       USBModule.initUSBCom();
       console.log("USBModule initialized");
-
-      // Wait for Zustand store to rehydrate if needed
-      if (isStoreLoading) {
-        console.log("Waiting for store to rehydrate...");
-        // Wait a bit for rehydration to complete
-        await delay(100);
-        console.log("Store rehydration complete");
-      }
 
       // Check token validity (validates persisted session)
       console.log("Checking token validity...");
@@ -389,7 +376,6 @@ export default function RootIndex() {
       }
     }
   }, [
-    isStoreLoading,
     checkTokenValidity,
     appVersionVerification,
     router,
@@ -534,45 +520,56 @@ export default function RootIndex() {
       </View>
 
       {/* Bluetooth Overlay */}
-      <Modal animationType="fade" transparent visible={bluetoothOverlay}>
+      <Modal
+        animationType="fade"
+        statusBarTranslucent
+        transparent
+        visible={bluetoothOverlay}
+      >
         <View className="flex-1 items-center justify-center bg-black/50">
-          <View className="max-w-[300px] rounded-lg bg-white p-5">
-            <OverlayView
-              description='This application requires bluetooth. Please click on "Turn On Bluetooth" to enable bluetooth'
-              primaryButtonOnPress={() => {
-                setLoading(true);
-                setSuccess(false);
-                setBluetoothOverlay(false);
-                turnOnBluetooth();
-              }}
-              primaryButtonText="Turn On Bluetooth"
-              renderOnlyPrimaryButton
-              title="NOTE"
-            />
-          </View>
+          <OverlayView
+            description='This application requires bluetooth. Please click on "Turn On Bluetooth" to enable bluetooth'
+            primaryButtonOnPress={() => {
+              setLoading(true);
+              setSuccess(false);
+              setBluetoothOverlay(false);
+              turnOnBluetooth();
+            }}
+            primaryButtonText="Turn On Bluetooth"
+            renderOnlyPrimaryButton
+            title="NOTE"
+          />
         </View>
       </Modal>
 
       {/* App Version Modal. Todo: This API isn't properly implemented yet*/}
-      <Modal animationType="fade" transparent visible={appVersionModal}>
+      <Modal
+        animationType="fade"
+        statusBarTranslucent
+        transparent
+        visible={appVersionModal}
+      >
         <View className="flex-1 items-center justify-center bg-black/50">
-          <View className="max-w-[300px] rounded-lg bg-white p-5">
-            <OverlayView
-              description="Current application version is not supported. Please contact service manager and install the latest application."
-              primaryButtonOnPress={() => {
-                setAppVersionModal(false);
-                openBalAppUpgrader();
-              }}
-              primaryButtonText="Okay"
-              renderOnlyPrimaryButton
-              title="NOTE"
-            />
-          </View>
+          <OverlayView
+            description="Current application version is not supported. Please contact service manager and install the latest application."
+            primaryButtonOnPress={() => {
+              setAppVersionModal(false);
+              openBalAppUpgrader();
+            }}
+            primaryButtonText="Okay"
+            renderOnlyPrimaryButton
+            title="NOTE"
+          />
         </View>
       </Modal>
 
       {/* Permissions Denied Modal */}
-      <Modal animationType="fade" transparent visible={isDenied}>
+      <Modal
+        animationType="fade"
+        statusBarTranslucent
+        transparent
+        visible={isDenied}
+      >
         <View className="flex-1 items-center justify-center bg-black/50">
           <View
             className="rounded-lg bg-white p-4"

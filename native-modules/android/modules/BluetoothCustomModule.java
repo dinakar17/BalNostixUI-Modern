@@ -431,7 +431,13 @@ public class BluetoothCustomModule extends ReactContextBaseJavaModule implements
     public Map<String, Object> getConstants() {
         // Log.d(TAG, "getConstants()" + BuildConfig.FMSURL + " " + BuildConfig.FLAVOR_NAME);
         final Map<String, Object> constants = new HashMap<>();
-        // constants.put("FMSURL", BuildConfig.FMSURL);
+        constants.put("APP_VARIANT", BuildConfig.APP_VARIANT);
+        
+        // Add Nostix library version info if balDongleLib is available
+        if (balDongleLib != null) {
+            constants.put("LIBRARY_VERSION_INFO", balDongleLib.getVersionInfo());
+        }
+        
         // constants.put("SAPURL", BuildConfig.SAPURL);
         // constants.put("FLAVOR_NAME", BuildConfig.FLAVOR_NAME);
 

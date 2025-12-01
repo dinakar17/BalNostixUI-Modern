@@ -644,7 +644,7 @@ export default function ECUDumpScreen() {
           }
         }}
         leftButtonType="back"
-        onDisconnect={updateDongleToDisconnected}
+        onDisconnect={() => updateDongleToDisconnected(true)}
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State && !checkIsCollecting()}
         rightButtonType="menu"

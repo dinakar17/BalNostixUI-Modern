@@ -37,8 +37,7 @@ interface ErrorCodeWithImage extends ErrorCode {
 }
 
 export default function ErrorCodesScreen() {
-  const { selectedEcu, isDonglePhase3State, updateDongleToDisconnected } =
-    useDataTransferStore();
+  const { selectedEcu, isDonglePhase3State } = useDataTransferStore();
   const { dataTransferMode } = useAuthStore();
 
   const [errorCodes, setErrorCodes] = useState<ErrorCodeWithImage[]>([]);
@@ -360,8 +359,6 @@ export default function ErrorCodesScreen() {
         leftButtonType="back"
         renderLeftButton
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
-        rightButtonType="settings"
         title="Error Codes"
       />
 

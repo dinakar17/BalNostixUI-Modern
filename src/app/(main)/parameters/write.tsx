@@ -85,12 +85,8 @@ type WriteParameterFlashProgress = {
 
 export default function WriteParametersScreen() {
   const { userInfo, handleLogout, dataTransferMode } = useAuthStore();
-  const {
-    selectedEcu,
-    isDonglePhase3State,
-    updateDongleToDisconnected,
-    isMotorTypeAlreadyWritten,
-  } = useDataTransferStore();
+  const { selectedEcu, isDonglePhase3State, isMotorTypeAlreadyWritten } =
+    useDataTransferStore();
 
   const [loading, setLoading] = useState(false);
   const [writeParameter, setWriteParameter] = useState<DIDParameter[]>([]);
@@ -425,8 +421,6 @@ export default function WriteParametersScreen() {
         leftButtonType="back"
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
-        rightButtonType="settings"
         title="Write PARAMETERS"
       />
       <View>

@@ -8,7 +8,7 @@ export type TileItem = {
   name: string;
   image: any;
   function: () => void;
-  isActive: boolean;
+  isActive?: boolean;
 };
 
 type TileProps = {

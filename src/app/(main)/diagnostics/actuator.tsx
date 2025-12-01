@@ -24,8 +24,7 @@ import type { ActuatorRoutine } from "@/types/bluetooth.types";
 const { BluetoothModule, USBModule } = NativeModules;
 
 export default function ActuatorsScreen() {
-  const { selectedEcu, isDonglePhase3State, updateDongleToDisconnected } =
-    useDataTransferStore();
+  const { selectedEcu, isDonglePhase3State } = useDataTransferStore();
   const { dataTransferMode } = useAuthStore();
 
   const [allActuators, setAllActuators] = useState<ActuatorRoutine[]>([]);
@@ -223,8 +222,6 @@ export default function ActuatorsScreen() {
         leftButtonType="back"
         renderLeftButton
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
-        rightButtonType="settings"
         title="ACTUATOR ROUTINES"
       />
       <View>

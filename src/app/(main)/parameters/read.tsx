@@ -32,8 +32,7 @@ export default function ReadParametersScreen() {
   const params = useLocalSearchParams<{
     ecuIndex: string;
   }>();
-  const { selectedEcu, isDonglePhase3State, updateDongleToDisconnected } =
-    useDataTransferStore();
+  const { selectedEcu, isDonglePhase3State } = useDataTransferStore();
 
   const { ecuIndex } = params;
 
@@ -236,8 +235,6 @@ export default function ReadParametersScreen() {
         leftButtonType="back"
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
-        rightButtonType="menu"
         title="READ PARAMETERS"
       />
 

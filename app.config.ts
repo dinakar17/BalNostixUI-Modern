@@ -10,19 +10,19 @@ const ENV_CONFIG = {
   development: {
     name: "DEV BALNOSTIX+",
     bundleIdentifier: "com.nostix.balnostix.dev",
-    androidPackage: "com.nostix",
+    androidPackage: "com.nostix", // dev flavor has no suffix
     scheme: "balnostix-dev",
   },
   uat: {
     name: "UAT BALNOSTIX+",
     bundleIdentifier: "com.nostix.balnostix.uat",
-    androidPackage: "com.nostix.uat",
+    androidPackage: "com.nostix.uat", // uat flavor adds .uat suffix
     scheme: "balnostix-uat",
   },
   production: {
     name: "BALNOSTIX+",
     bundleIdentifier: "com.nostix.balnostix.app",
-    androidPackage: "com.nostix.app",
+    androidPackage: "com.nostix.app", // prod flavor adds .app suffix
     scheme: "balnostix",
   },
 } as const;
@@ -85,12 +85,18 @@ const config: ExpoConfig = {
   },
   android: {
     adaptiveIcon: {
-      foregroundImage: "./src/assets/adaptive-icon.png",
+      foregroundImage: "./src/assets/ic_launcher_foreground.png",
       backgroundColor: "#ffffff",
     },
+    splash: {
+      image: "./src/assets/images/introImg.png",
+      resizeMode: "cover",
+      backgroundColor: "#ffffff",
+    },
+
     package: currentConfig.androidPackage,
     permissions: [
-      // Bluetooth permissions (handled by react-native-ble-plx plugin, but kept for clarity)
+      // Bluetooth permissions
       "BLUETOOTH",
       "BLUETOOTH_ADMIN",
       "BLUETOOTH_SCAN",

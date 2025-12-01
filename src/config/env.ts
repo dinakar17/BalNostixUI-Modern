@@ -1,6 +1,15 @@
+import { NativeModules } from "react-native";
+
 type Environment = "development" | "uat" | "production";
 
-const ENV_NAME = (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) || "uat";
+const { BluetoothModule } = NativeModules;
+
+const ENV_NAME =
+  (process.env.EXPO_PUBLIC_APP_VARIANT as Environment) ||
+  BluetoothModule.APP_VARIANT ||
+  "uat";
+
+console.log(`Determined ENV_NAME: ${ENV_NAME}`);
 
 const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.0.84";
 const APP_RELEASE_DATE = process.env.EXPO_PUBLIC_APP_RELEASE_DATE || "1";

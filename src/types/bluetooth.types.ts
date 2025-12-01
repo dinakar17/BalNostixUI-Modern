@@ -283,6 +283,16 @@ export type ActuatorRoutine = {
  */
 export interface BluetoothModuleType extends NativeModule {
   // ============================================================================
+  // Constants from Native Module
+  // ============================================================================
+
+  /**
+   * App variant from build configuration
+   * Values: "development" | "uat" | "production"
+   */
+  APP_VARIANT: "development" | "uat" | "production";
+
+  // ============================================================================
   // Initialization & Connection Methods
   // ============================================================================
 

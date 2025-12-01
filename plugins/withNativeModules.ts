@@ -26,6 +26,8 @@ const IMPORT_REGEX = /(import.*?\n)+/;
 const GET_PACKAGES_REGEX =
   /(override fun getPackages\(\): List<ReactPackage> =[\s\S]*?\.apply\s*{[\s\S]*?(?=}))/;
 const DEPENDENCY_PACKAGE_REGEX = /"([^"]+)"/;
+const ANDROID_BLOCK_REGEX = /android\s*\{/;
+const DEFAULT_CONFIG_REGEX = /defaultConfig\s*\{\s*[\s\S]*?\n\s{4}\}/;
 
 /**
  * Copy native module Java files
@@ -283,6 +285,87 @@ const withNativeModuleDependencies: ConfigPlugin = (config) => {
 };
 
 /**
+ * Add product flavors for app variants (dev, uat, prod)
+ */
+const withProductFlavors: ConfigPlugin = (config) => {
+  return withDangerousMod(config, [
+    "android",
+    async (modConfig) => {
+      const buildGradlePath = path.join(
+        modConfig.modRequest.platformProjectRoot,
+        "app/build.gradle"
+      );
+
+      let buildGradleContent = await fs.readFile(buildGradlePath, "utf8");
+
+      console.log("📝 Adding product flavors...");
+
+      // Check if product flavors already exist
+      if (buildGradleContent.includes("flavorDimensions")) {
+        console.log("   ✓ Product flavors already configured");
+        return modConfig;
+      }
+
+      // Find the android block and defaultConfig
+      const androidMatch = buildGradleContent.match(ANDROID_BLOCK_REGEX);
+      const defaultConfigMatch = buildGradleContent.match(DEFAULT_CONFIG_REGEX);
+
+      const hasRequiredBlocks =
+        androidMatch &&
+        defaultConfigMatch &&
+        defaultConfigMatch.index !== undefined;
+
+      if (!hasRequiredBlocks) {
+        console.warn(
+          "⚠️  Could not find android block or defaultConfig in build.gradle"
+        );
+        return modConfig;
+      }
+
+      // Product flavors configuration
+      const productFlavorsConfig = `
+    flavorDimensions "default"
+    
+    productFlavors {
+        dev {
+            dimension "default"
+            resValue "string", "app_name", "DEV BALNOSTIX+"
+            buildConfigField "String", "APP_VARIANT", "\\"development\\""
+        }
+        uat {
+            dimension "default"
+            applicationIdSuffix ".uat"
+            resValue "string", "app_name", "UAT BALNOSTIX+"
+            buildConfigField "String", "APP_VARIANT", "\\"uat\\""
+        }
+        prod {
+            dimension "default"
+            applicationIdSuffix ".app"
+            resValue "string", "app_name", "BALNOSTIX+"
+            buildConfigField "String", "APP_VARIANT", "\\"production\\""
+        }
+    }
+`;
+
+      // Insert product flavors after defaultConfig
+      // TypeScript knows index is defined because of the hasRequiredBlocks check
+      const insertPosition =
+        (defaultConfigMatch.index as number) + defaultConfigMatch[0].length;
+      buildGradleContent =
+        buildGradleContent.slice(0, insertPosition) +
+        productFlavorsConfig +
+        buildGradleContent.slice(insertPosition);
+
+      await fs.writeFile(buildGradlePath, buildGradleContent);
+      console.log("   ✓ Added product flavors (dev, uat, prod)");
+      console.log("✅ Product flavors configured");
+
+      return modConfig;
+    },
+  ]);
+};
+
+/**
  * Register CustomModulePackage in MainApplication.kt
  */
 const withCustomModulePackage: ConfigPlugin = (config) => {
@@ -354,6 +437,7 @@ const withNativeModules: ConfigPlugin<{ aarPath?: string } | undefined> = (
     withNativeModuleFiles,
     [withBalDongleLib, props],
     withNativeModuleDependencies,
+    withProductFlavors,
     withCustomModulePackage,
   ]);
 

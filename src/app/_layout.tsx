@@ -9,10 +9,18 @@ import {
   wrap,
 } from "@sentry/react-native";
 import { Stack, useSegments } from "expo-router";
+import {
+  hideAsync as hideSplashScreen,
+  preventAutoHideAsync as preventSplashScreenAutoHide,
+} from "expo-splash-screen";
 import { useEffect } from "react";
 import Toast from "react-native-toast-message";
 import { ENV } from "@/config/env";
 import { toastConfig } from "@/lib/toast-config";
+import { useAuthStore } from "@/store/auth-store";
+
+// Keep the splash screen visible while we're rehydrating the store
+preventSplashScreenAutoHide();
 
 console.log(`App Environment: ${ENV.ENV_NAME}`);
 console.log(`Sentry Enabled status: ${!ENV.IS_DEV}`);
@@ -44,11 +52,21 @@ if (ENV.IS_DEV) {
 
 export default wrap(function Layout() {
   const segments = useSegments();
+  const hasRehydrated = useAuthStore((state) => state.hasRehydrated);
 
   useEffect(() => {
     const currentScreen = segments.join("/");
     console.log(`📍 Current Screen: /${currentScreen}`);
   }, [segments]);
+
+  useEffect(() => {
+    // Hide splash screen once store is rehydrated
+    if (hasRehydrated) {
+      hideSplashScreen().catch((error: unknown) => {
+        console.error("Error hiding splash screen:", error);
+      });
+    }
+  }, [hasRehydrated]);
 
   return (
     <>

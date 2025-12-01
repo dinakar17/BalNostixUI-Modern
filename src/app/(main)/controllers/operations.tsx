@@ -295,7 +295,7 @@ export default function ControllerOperationsScreen() {
         leftButtonType="back"
         renderLeftButton={true}
         renderRightButton={isDonglePhase3State}
-        rightButtonFunction={updateDongleToDisconnected}
+        rightButtonFunction={() => updateDongleToDisconnected(true)}
         rightButtonType="settings"
         title="Operations"
       />

@@ -209,10 +209,6 @@ export function ChangePinModal({ visible, onClose }: ChangePinModalProps) {
 
             {/* Content */}
             <View className="p-4">
-              <Text className="mb-4 text-center text-gray-600 text-sm">
-                Change your transaction PIN to secure your transactions
-              </Text>
-
               {/* Dealer Code */}
               <View className="mb-4">
                 <Text className="mb-2 font-bold text-gray-700 text-sm">
@@ -362,11 +358,10 @@ export function ChangePinModal({ visible, onClose }: ChangePinModalProps) {
               </View>
 
               {/* Action Buttons */}
-              <View className="flex-row space-x-3">
+              <View className="flex-row gap-3">
                 <View className="flex-1">
                   <Button
                     onPress={handleClose}
-                    size="lg"
                     text="CANCEL"
                     variant="secondary"
                   />
@@ -376,7 +371,6 @@ export function ChangePinModal({ visible, onClose }: ChangePinModalProps) {
                     disabled={isMutating}
                     isLoading={isMutating}
                     onPress={handleSubmit(onSubmit)}
-                    size="lg"
                     text="CHANGE PIN"
                     variant="primary"
                   />

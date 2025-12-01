@@ -18,7 +18,6 @@ import {
 import { FMSApi } from "@/api/fms";
 import { PrimaryButton, WhiteButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
-import { OverlayView } from "@/components/ui/overlay";
 import { toastError } from "@/lib/toast";
 import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
@@ -43,10 +42,8 @@ export default function ReadVINScreen() {
 
   const { userInfo, handleLogout } = useAuthStore();
   const {
-    isDonglePhase3State,
     isDongleStuckInBoot,
     setControllersData,
-    disconnectFromDevice,
     updateDongleToDisconnected,
     updateIsDonglePhase3State,
     setVin,
@@ -65,7 +62,6 @@ export default function ReadVINScreen() {
   const [isReadVinFailed, setIsReadVinFailed] = useState(false);
   const [scanVinFailed, setScanVinFailed] = useState(false);
   const [isPinModalVisible, setIsPinModalVisible] = useState(false);
-  const [overlayView, setOverlayView] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const pinInputRef = useRef<TextInput>(null);
@@ -485,25 +481,9 @@ export default function ReadVINScreen() {
 
   // Handle back button
   const handleBackButton = useCallback(() => {
-    setOverlayView(true);
+    updateDongleToDisconnected(true);
     return true;
-  }, []);
-
-  const onBackPress = () => {
-    if (isDownloading) {
-      console.log("readVin back press while download is in progress");
-    } else {
-      console.log("readVin back press when no download");
-      if (isDonglePhase3State) {
-        // Phase 3
-        updateDongleToDisconnected();
-      } else {
-        // Phase 1, 2
-        disconnectFromDevice();
-      }
-    }
-    return true;
-  };
+  }, [updateDongleToDisconnected]);
 
   useFocusEffect(
     useCallback(() => {
@@ -557,9 +537,7 @@ export default function ReadVINScreen() {
   return (
     <>
       <CustomHeader
-        leftButtonFunction={handleBackButton}
-        leftButtonType="back"
-        onDisconnect={updateDongleToDisconnected}
+        onDisconnect={() => updateDongleToDisconnected(true)}
         renderLeftButton={true}
         renderRightButton
         rightButtonType="menu"
@@ -724,22 +702,6 @@ export default function ReadVINScreen() {
               />
             </View>
           </KeyboardAvoidingView>
-        </View>
-      )}
-
-      {/* Back Press Overlay */}
-      {overlayView && (
-        <View className="absolute inset-0 z-50 items-center justify-center bg-black/50">
-          <View className="w-[90%] rounded-lg bg-white p-4">
-            <OverlayView
-              description="The dongle will be disconnected and the device has to be manually turned off and turned on to connect again"
-              primaryButtonOnPress={onBackPress}
-              primaryButtonText="Yes"
-              title="Are you sure?"
-              whiteButtonOnPress={() => setOverlayView(false)}
-              whiteButtonText="Cancel"
-            />
-          </View>
         </View>
       )}
     </>
