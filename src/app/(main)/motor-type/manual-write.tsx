@@ -144,8 +144,8 @@ export default function WriteMotorTypeScreen() {
     }
   }, []);
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Motor type update handler requires conditional logic
   const onUpdateUIResponse = React.useCallback(
+    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Motor type update handler requires conditional logic
     (response: unknown) => {
       try {
         const resp = response as { name: string; value: unknown };

@@ -132,7 +132,6 @@ export default function SelectDeviceScreen() {
   const getBondedDevices = useCallback(async () => {
     try {
       setOverlayLoading(true);
-      await sleep(600);
 
       console.log("[SelectDevice] Getting bonded devices...");
 
@@ -152,9 +151,8 @@ export default function SelectDeviceScreen() {
       console.log("[SelectDevice] Found bonded devices:", devices.length);
 
       setPairedDevices(devices);
-      setOverlayLoading(false);
 
-      // Background scan to get RSSI values for paired devices
+      // Start scanning immediately to get RSSI values
       if (devices.length > 0) {
         console.log("[SelectDevice] Starting background scan for RSSI...");
 
@@ -163,48 +161,17 @@ export default function SelectDeviceScreen() {
           seconds: 5,
           allowDuplicates: true,
         });
-
-        // Stop scan after 5 seconds and update paired devices with RSSI
-        setTimeout(async () => {
-          try {
-            const scannedPeripherals =
-              await BleManager.getDiscoveredPeripherals();
-
-            // Update RSSI for paired devices that were detected in scan
-            const updatedDevices = devices.map((device) => {
-              const scannedDevice = scannedPeripherals.find(
-                (p) => p.id === device.id
-              );
-              if (scannedDevice?.rssi) {
-                return {
-                  ...device,
-                  rssi: scannedDevice.rssi,
-                  distance: calculateDistance(scannedDevice.rssi),
-                };
-              }
-              return device;
-            });
-
-            // Sort by signal strength
-            const sorted = sortDevicesBySignal(updatedDevices);
-            setPairedDevices(sorted);
-
-            console.log(
-              "[SelectDevice] Updated RSSI for",
-              updatedDevices.filter((d) => d.rssi).length,
-              "paired devices"
-            );
-          } catch (error) {
-            console.error("[SelectDevice] Error updating RSSI:", error);
-          }
-        }, 5000);
       }
+
+      // Hide overlay after devices are shown (but continue scanning in background)
+      await sleep(400);
+      setOverlayLoading(false);
     } catch (error) {
       console.error("[SelectDevice] Error getting bonded devices:", error);
       setOverlayLoading(false);
       toastError("Failed to get paired devices");
     }
-  }, [sortDevicesBySignal]);
+  }, []);
 
   // Scan for new devices with RSSI
   const scanForNewDevices = useCallback(async () => {
@@ -283,7 +250,23 @@ export default function SelectDeviceScreen() {
     if (peripheral.name) {
       const pairedIds = new Set(pairedDevices.map((d) => d.id));
 
-      if (!pairedIds.has(peripheral.id)) {
+      // Update RSSI for paired devices in real-time
+      if (pairedIds.has(peripheral.id)) {
+        setPairedDevices((prev) => {
+          const updated = prev.map((device) => {
+            if (device.id === peripheral.id && peripheral.rssi) {
+              return {
+                ...device,
+                rssi: peripheral.rssi,
+                distance: calculateDistance(peripheral.rssi),
+              };
+            }
+            return device;
+          });
+          return sortDevicesBySignal(updated);
+        });
+      } else {
+        // Handle discovered (unpaired) devices
         console.log(
           "[SelectDevice] Discovered/Updated:",
           peripheral.name,

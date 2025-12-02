@@ -1,3 +1,4 @@
+import Entypo from "@expo/vector-icons/Entypo";
 import { Dimensions, Image, Pressable, Text, View } from "react-native";
 import { ShadowBox } from "../ui/shadow-box";
 
@@ -36,7 +37,7 @@ export function Tile({
   if (!item.isActive) {
     return (
       <Pressable
-        disabled
+        disabled={!overlayText}
         onPress={item.function}
         style={{
           marginLeft: gap,
@@ -50,7 +51,7 @@ export function Tile({
             width: tileSize,
             justifyContent: "center",
             alignItems: "center",
-            opacity: 0.5,
+            opacity: overlayText ? 1 : 0.5,
           }}
         >
           {overlayText ? (
@@ -72,19 +73,15 @@ export function Tile({
                   height: "100%",
                   width: "100%",
                   borderRadius: 20,
-                  tintColor: "gray",
                 }}
               />
               <Text
                 style={{
                   textAlign: "center",
-                  fontSize: 16,
+                  fontSize: 20,
                   fontWeight: "bold",
-                  color: "white",
+                  color: "black",
                   zIndex: 1,
-                  textShadowColor: "rgba(0, 0, 0, 0.75)",
-                  textShadowOffset: { width: 1, height: 1 },
-                  textShadowRadius: 3,
                   paddingHorizontal: 10,
                 }}
               >
@@ -142,8 +139,23 @@ export function Tile({
           width: tileSize,
           justifyContent: "center",
           alignItems: "center",
+          borderWidth: overlayText ? 3 : 0,
+          borderColor: overlayText ? "#22c55e" : "transparent",
         }}
       >
+        {overlayText && (
+          /* Green arrow indicator - only for overlay mode */
+          <View
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 2,
+              zIndex: 10,
+            }}
+          >
+            <Entypo color="#22c55e" name="arrow-bold-up" size={24} />
+          </View>
+        )}
         {overlayText ? (
           // Overlay text mode - text on top of image
           <View

@@ -56,7 +56,9 @@ export default function FlashSuccessScreen() {
             </Text>
             <View style={{ paddingHorizontal: metrics.width / 8 }}>
               <PrimaryButton
-                onPress={() => router.replace("/(main)/controllers/operations")}
+                onPress={() =>
+                  router.dismissTo("/(main)/controllers/operations")
+                }
                 text="BACK TO HOME"
               />
             </View>

@@ -124,6 +124,9 @@ export default function MainLayout() {
         isDeviceConnected
       ) {
         console.log("[MainLayout] deviceBluetoothDisconnected");
+        if (isDongleToBeDisconnected) {
+          updateDongleToDisconnected(false);
+        }
         dataTransferModeSelection("null");
         setIsDataErrorModalVisible(true);
       }

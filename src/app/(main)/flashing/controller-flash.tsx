@@ -55,6 +55,7 @@ export default function ControllerFlashScreen() {
   const [_, setPrevFlashingState] = useState<FlashingState | null>(null);
   const [isFlashing, setIsFlashing] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
+  const [showSameVersionModal, setShowSameVersionModal] = useState(false);
   const [failureMessage, setFailureMessage] = useState("");
   const [flashDuration, setFlashDuration] = useState<duration.Duration | null>(
     null
@@ -264,6 +265,8 @@ export default function ControllerFlashScreen() {
   const handleFlashFailure = (flashResponse: FlashingState) => {
     if (flashResponse?.status?.toLowerCase()?.includes("same version")) {
       postSuccessFlash();
+      cleanup();
+      setShowSameVersionModal(true);
     } else {
       // Capture flash failure in Sentry
       captureMessage("Controller flash failed", {
@@ -279,12 +282,12 @@ export default function ControllerFlashScreen() {
           ecu_index: selectedEcu?.index,
         },
       });
-    }
 
-    cleanup();
-    setFailureMessage(flashResponse.status);
-    setShowConfirmationModal(true);
-    BluetoothModule.saveAppLog(selectedEcu?.index);
+      cleanup();
+      setFailureMessage(flashResponse.status);
+      setShowConfirmationModal(true);
+      BluetoothModule.saveAppLog(selectedEcu?.index);
+    }
   };
 
   const handleFlashSuccess = (flashResponse: FlashingState) => {
@@ -484,7 +487,7 @@ export default function ControllerFlashScreen() {
   const FailureModal = () => (
     <View className="absolute inset-0 items-center justify-center bg-black/50">
       <View
-        className="rounded-lg bg-white px-4 py-4"
+        className="rounded-lg bg-white p-6"
         style={{ width: metrics.width / 1.2 }}
       >
         <View className="items-center">
@@ -501,6 +504,31 @@ export default function ControllerFlashScreen() {
             onPress={() => {
               uploadLogs();
               postDongleFlash();
+              router.dismissTo("/(main)/controllers/operations");
+            }}
+            text="Okay"
+          />
+        </View>
+      </View>
+    </View>
+  );
+
+  const SameVersionModal = () => (
+    <View className="absolute inset-0 items-center justify-center bg-black/50">
+      <View
+        className="rounded-lg bg-white p-6"
+        style={{ width: metrics.width / 1.2 }}
+      >
+        <View className="items-center">
+          <Image className="h-10 w-10" contentFit="contain" source={infoIcon} />
+        </View>
+        <Text className="mt-4 text-center font-proximanova text-lg">
+          The controller already has the same version installed. No flashing
+          required.
+        </Text>
+        <View className="mt-4">
+          <PrimaryButton
+            onPress={() => {
               router.dismissTo("/(main)/controllers/operations");
             }}
             text="Okay"
@@ -621,6 +649,7 @@ export default function ControllerFlashScreen() {
           )}
 
           {showConfirmationModal && <FailureModal />}
+          {showSameVersionModal && <SameVersionModal />}
         </View>
       </View>
     </>

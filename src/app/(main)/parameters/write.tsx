@@ -575,7 +575,10 @@ export default function WriteParametersScreen() {
 
               <View className="flex-row">
                 {hasOptions ? (
-                  <View className="mx-2 my-2 flex-1 rounded-lg border border-gray-300">
+                  <View
+                    className="mx-2 my-2 max-h-[300px] flex-1 rounded-lg border border-gray-300"
+                    style={{ flex: 1 }}
+                  >
                     <FlatList
                       data={items}
                       keyExtractor={(item) => item.value}
@@ -691,7 +694,7 @@ export default function WriteParametersScreen() {
         visible={showModal}
       >
         <View className="flex-1 items-center justify-center bg-black/50">
-          <View className="w-[90%] rounded-lg bg-white py-8">
+          <View className="w-[90%] rounded-lg bg-white p-6">
             <View>
               <Text className="text-center font-bold text-lg">
                 {writeParameterFlashProgress.message}
