@@ -14,7 +14,7 @@ import {
   View,
 } from "react-native";
 import { Bar as ProgressBar } from "react-native-progress";
-import { usePostFlashSuccess, useUploadFlashLogs } from "@/api/data-transfer";
+import { usePostFlashSuccess, useUploadAppLogs } from "@/api/data-transfer";
 import { infoIcon } from "@/assets/images/index";
 import { PrimaryButton } from "@/components/ui/button";
 import { CustomHeader } from "@/components/ui/header";
@@ -45,7 +45,7 @@ export default function ControllerFlashScreen() {
   const { selectedEcu, controllersData, setIsUpdateAvailableToFalse } =
     useDataTransferStore();
   const { userInfo, handleLogout } = useAuthStore();
-  const { trigger: uploadFlashLogs } = useUploadFlashLogs();
+  const { trigger: uploadAppLogs } = useUploadAppLogs();
   const { trigger: postFlashSuccess } = usePostFlashSuccess();
 
   const [isVisible, setIsVisible] = useState(false);
@@ -137,7 +137,7 @@ export default function ControllerFlashScreen() {
           vinNumber: string;
           oldHexFileName: string;
         };
-        await uploadFlashLogs({
+        await uploadAppLogs({
           serialNumber: userInfo.serial_number,
           vinNumber: ecu.vinNumber,
           hexFile: ecu.oldHexFileName,
@@ -174,7 +174,7 @@ export default function ControllerFlashScreen() {
           vinNumber: string;
           oldHexFileName: string;
         };
-        await uploadFlashLogs({
+        await uploadAppLogs({
           serialNumber: userInfo.serial_number,
           vinNumber: ecu.vinNumber,
           hexFile: ecu.oldHexFileName,
@@ -203,7 +203,7 @@ export default function ControllerFlashScreen() {
 
       setIsUpdateAvailableToFalse(controllersData, selectedEcu.index);
 
-      const ecu = selectedEcu as unknown as {
+      const ecu = selectedEcu as {
         vinNumber: string;
         oldHexFileName: string;
       };
@@ -308,16 +308,14 @@ export default function ControllerFlashScreen() {
         status: getStatus(response.value.status),
       };
 
-      if (isPerFrameUpdateEnabled) {
+      // Reset timeout when progress update received (ECU is still responding)
+      if (isPerFrameUpdateEnabled && selectedEcu?.dynamicWaitTime) {
         console.log(
           "[ControllerFlash] handleStartTimeout onresponse cancel old and new start",
           ", delay:",
           selectedEcu?.dynamicWaitTime
         );
-        // Reset timeout on each frame update to detect ECU unresponsiveness
-        if (selectedEcu?.dynamicWaitTime) {
-          handleStartTimeout(selectedEcu.dynamicWaitTime);
-        }
+        handleStartTimeout(selectedEcu.dynamicWaitTime);
       }
 
       // Store previous state for error reporting
@@ -326,11 +324,6 @@ export default function ControllerFlashScreen() {
         flashResponse.subProgress !== -1
       ) {
         setPrevFlashingState(flashResponse);
-      }
-
-      // Reset timeout when progress update received (ECU is still responding)
-      if (isPerFrameUpdateEnabled && selectedEcu?.dynamicWaitTime) {
-        handleStartTimeout(selectedEcu.dynamicWaitTime);
       }
 
       // Update elapsed flashing duration for display
@@ -404,22 +397,7 @@ export default function ControllerFlashScreen() {
       timeStartRef.current = dayjs();
 
       // isShowUpdatePerFrameTime: Enable per-frame progress updates (default: true)
-      // dynamicWaitTime: Max time to wait for ECU response (default: 6000ms)
       setPerFrameUpdateEnabled(selectedEcu.isShowUpdatePerFrameTime);
-
-      // Log flash start to Sentry
-      captureMessage("Controller flash started", {
-        level: "info",
-        tags: {
-          operation: "controller_flash_start",
-          ecu_name: selectedEcu?.ecuName || "unknown",
-        },
-        extra: {
-          ecu_index: selectedEcu?.index,
-          is_per_frame_update: selectedEcu.isShowUpdatePerFrameTime,
-          dynamic_wait_time: selectedEcu.dynamicWaitTime,
-        },
-      });
 
       console.log("[ControllerFlash] Starting reprogramming", {
         isShowUpdatePerFrameTime: selectedEcu.isShowUpdatePerFrameTime,
@@ -428,6 +406,7 @@ export default function ControllerFlashScreen() {
 
       if (isPerFrameUpdateEnabled && selectedEcu.dynamicWaitTime) {
         // Use ECU-specific timeout for monitoring responsiveness
+        // dynamicWaitTime: Max time to wait for ECU response (default: 6000ms)
         handleStartTimeout(selectedEcu.dynamicWaitTime);
       } else {
         // Fallback: Use long timeout when per-frame updates disabled
@@ -483,7 +462,7 @@ export default function ControllerFlashScreen() {
     if (isFlashing) {
       return true;
     }
-    router.replace("/(main)/controllers/operations");
+    router.dismissTo("/(main)/controllers/operations");
     return true;
   }, [isFlashing]);
 
@@ -522,7 +501,7 @@ export default function ControllerFlashScreen() {
             onPress={() => {
               uploadLogs();
               postDongleFlash();
-              router.replace("/(main)/controllers/operations");
+              router.dismissTo("/(main)/controllers/operations");
             }}
             text="Okay"
           />
@@ -559,10 +538,10 @@ export default function ControllerFlashScreen() {
                   // BluetoothModule.updateBootLoader(); // not needed
                 }}
                 primaryButtonText="OKAY"
-                secondDescription={`Ensure that ${(selectedEcu as unknown as { oldHexFileName: string })?.oldHexFileName} is associated with ${selectedEcu?.ecuName}?`}
+                secondDescription={`Ensure that ${selectedEcu?.oldHexFileName} is associated with ${selectedEcu?.ecuName}?`}
                 title="NOTE"
                 whiteButtonOnPress={() =>
-                  router.replace("/(main)/controllers/operations")
+                  router.dismissTo("/(main)/controllers/operations")
                 }
                 whiteButtonText="CANCEL"
               />

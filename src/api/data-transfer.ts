@@ -1,14 +1,11 @@
+import dayjs from "dayjs";
 import { Directory, File, Paths } from "expo-file-system";
 import { createMMKV } from "react-native-mmkv";
+import { zip } from "react-native-zip-archive";
 import useSWRMutation from "swr/mutation";
 import { ENV } from "@/config/env";
 
-// Initialize MMKV storage
 const storage = createMMKV();
-
-// ============================================
-// Type Definitions
-// ============================================
 
 type BaseResponse = {
   error: number;
@@ -16,8 +13,6 @@ type BaseResponse = {
 };
 
 interface UploadAppLogsResponse extends BaseResponse {}
-
-interface UploadFlashLogsResponse extends BaseResponse {}
 
 interface PostFlashSuccessResponse extends BaseResponse {}
 
@@ -33,12 +28,6 @@ type UploadAppLogsParams = {
   hexFile: string;
 };
 
-type UploadFlashLogsParams = {
-  serialNumber: string;
-  vinNumber: string;
-  hexFile: string;
-};
-
 type PostFlashSuccessParams = {
   serialNumber: string;
   vinNumber: string;
@@ -46,10 +35,6 @@ type PostFlashSuccessParams = {
 };
 
 type UploadEeDumpParams = Record<string, never>;
-
-// ============================================
-// Helper Functions
-// ============================================
 
 // Helper function to upload a single EE dump job using fetch
 const uploadSingleJob = async (
@@ -80,7 +65,7 @@ const uploadSingleJob = async (
     // Append file using the React Native FormData format
     formData.append("analyticsfile", {
       uri: fileUri,
-      name: `${job.vin_number}_${new Date().toISOString()}.zip`,
+      name: `${job.vin_number}_${dayjs().toISOString()}.zip`,
       type: "application/zip",
     } as any);
 
@@ -118,10 +103,6 @@ const uploadSingleJob = async (
   }
 };
 
-// ============================================
-// Mutation Functions
-// ============================================
-
 async function uploadAppLogsMutation(
   _url: string,
   { arg }: { arg: UploadAppLogsParams }
@@ -139,7 +120,7 @@ async function uploadAppLogsMutation(
     const logBalPath = documentPath.replace("files", "BALLog");
     const logAppPath = documentPath.replace("files", "BALAppLog");
     const logAllPath = `${documentPath}/BALAllLog`;
-    const logAllDir = new Directory(`file://${logAllPath}`);
+    const logZipPath = `${documentPath}/logFile.zip`;
 
     // Check if directories exist using new API
     const balDir = new Directory(`file://${logBalPath}`);
@@ -155,130 +136,113 @@ async function uploadAppLogsMutation(
       };
     }
 
+    const logAllDir = new Directory(`file://${logAllPath}`);
+
     // Ensure BALAllLog directory exists
     if (!logAllDir.exists) {
       logAllDir.create();
     }
 
-    // Copy logs to temporary folder
-    if (balExists) {
-      const destBalDir = new Directory(logAllDir, "BALLog");
-      balDir.copy(destBalDir);
-    }
+    // Zip individual log directories
     if (appExists) {
-      const destAppDir = new Directory(logAllDir, "BALAppLog");
-      appDir.copy(destAppDir);
+      const timestamp = dayjs().format("YYYY-MM-DDTHH-mm-ss-SSSZ");
+      await zip(
+        `file://${logAppPath}`,
+        `file://${logAllPath}/BALAppLog_${timestamp}.zip`
+      );
+      // Delete original directory after zipping
+      appDir.delete();
     }
 
-    console.log("[DataTransferAPI] Logs prepared for upload:", {
+    if (balExists) {
+      const timestamp = dayjs().format("YYYY-MM-DDTHH-mm-ss-SSSZ");
+      await zip(
+        `file://${logBalPath}`,
+        `file://${logAllPath}/BALLog_${timestamp}.zip`
+      );
+      // Delete original directory after zipping
+      balDir.delete();
+    }
+
+    // Zip the entire BALAllLog directory
+    await zip(`file://${logAllPath}`, `file://${logZipPath}`);
+
+    console.log("[DataTransferAPI] Logs zipped, preparing upload:", {
       serialNumber: arg.serialNumber,
       vinNumber: arg.vinNumber,
       hexFile: arg.hexFile,
-      logPath: logAllDir.uri,
+      zipPath: logZipPath,
     });
 
-    // Note: You'll need to zip the logAllDir before uploading
-    // You can use react-native-zip-archive or similar library
-    // For now, assuming you have a zipped file path
-
-    // Example upload with fetch (uncomment and modify when you have zip functionality):
-    /*
-    const zipPath = `${documentPath}/logFile.zip`;
-    // ... zip the logAllDir to zipPath ...
-    
+    // Upload the zipped file
     const formData = new FormData();
-    formData.append('logfile', {
-      uri: `file://${zipPath}`,
-      name: 'logs.zip',
-      type: 'application/zip',
+    formData.append("logfile", {
+      uri: `file://${logZipPath}`,
+      name: "logs.zip",
+      type: "application/zip",
     } as any);
-    formData.append('serial_number', arg.serialNumber);
-    formData.append('vin_number', arg.vinNumber);
-    formData.append('hexfile_name', arg.hexFile);
+    formData.append("serial_number", arg.serialNumber);
+    formData.append("vin_number", arg.vinNumber);
+    formData.append("hexfile_name", arg.hexFile);
 
     const response = await fetch(
       `${ENV.FMS_URL}/api/v2/vin/hexfile/log/install`,
       {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
+          // Don't set Content-Type for FormData - fetch will set it automatically with boundary
         },
         body: formData,
       }
     );
 
     const data = await response.json();
-    
-    if (response.ok && data.message === 'Success') {
-      // Clean up files
-      if (logAllDir.exists) {
-        logAllDir.delete();
-      }
-      const zipFile = new File(`file://${zipPath}`);
-      if (zipFile.exists) {
-        zipFile.delete();
-      }
-    }
-    */
 
-    // Clean up temporary folder after upload
+    // Clean up files after upload attempt
     if (logAllDir.exists) {
       logAllDir.delete();
     }
+    const zipFile = new File(`file://${logZipPath}`);
+    if (zipFile.exists) {
+      zipFile.delete();
+    }
 
-    return {
-      error: 0,
-      message: "Logs uploaded successfully",
-    };
-  } catch (error) {
-    console.error("[DataTransferAPI] uploadAppLogs error:", error);
-    throw error;
-  }
-}
-
-async function uploadFlashLogsMutation(
-  _url: string,
-  { arg }: { arg: UploadFlashLogsParams }
-): Promise<UploadFlashLogsResponse> {
-  const { useAuthStore } = await import("@/store/auth-store");
-  const { userInfo } = useAuthStore.getState();
-  const token = userInfo?.token;
-
-  if (!token) {
-    throw new Error("No authentication token available");
-  }
-
-  try {
-    const response = await fetch(`${ENV.FMS_URL}/api/v4/app-logs`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        serial_number: arg.serialNumber,
-        vin_number: arg.vinNumber,
-        hex_file: arg.hexFile,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (response.ok) {
-      console.log("[DataTransferAPI] Flash logs uploaded successfully");
+    if (response.ok && data.message === "Success") {
+      console.log("[DataTransferAPI] App logs uploaded successfully");
       return {
         error: 0,
         message: data.message || "Logs uploaded successfully",
       };
     }
 
-    console.log("[DataTransferAPI] Flash logs upload failed:", data);
+    console.log("[DataTransferAPI] App logs upload failed:", data);
     return {
       error: 1,
       message: data.message || "Upload failed",
     };
   } catch (error) {
-    console.error("[DataTransferAPI] uploadFlashLogs error:", error);
+    console.error("[DataTransferAPI] uploadAppLogs error:", error);
+
+    // Clean up on error
+    try {
+      const documentPath = Paths.document.uri.replace("file://", "");
+      const logAllPath = `${documentPath}/BALAllLog`;
+      const logZipPath = `${documentPath}/logFile.zip`;
+
+      const logAllDir = new Directory(`file://${logAllPath}`);
+      if (logAllDir.exists) {
+        logAllDir.delete();
+      }
+
+      const zipFile = new File(`file://${logZipPath}`);
+      if (zipFile.exists) {
+        zipFile.delete();
+      }
+    } catch (cleanupError) {
+      console.error("[DataTransferAPI] Cleanup error:", cleanupError);
+    }
+
     throw error;
   }
 }
@@ -427,10 +391,6 @@ async function uploadEeDumpWithEcuMutation(
   }
 }
 
-// ============================================
-// Custom Hooks
-// ============================================
-
 /**
  * Hook for uploading app logs to server
  * @returns SWR mutation hook with trigger function and state
@@ -445,22 +405,6 @@ export function useUploadAppLogs() {
     string,
     UploadAppLogsParams
   >("/api/v4/upload-logs", uploadAppLogsMutation);
-}
-
-/**
- * Hook for uploading flash logs to server
- * @returns SWR mutation hook with trigger function and state
- * @example
- * const { trigger, isMutating, error } = useUploadFlashLogs();
- * const result = await trigger({ serialNumber: "SN123", vinNumber: "VIN456", hexFile: "file.hex" });
- */
-export function useUploadFlashLogs() {
-  return useSWRMutation<
-    UploadFlashLogsResponse,
-    Error,
-    string,
-    UploadFlashLogsParams
-  >("/api/v4/app-logs", uploadFlashLogsMutation);
 }
 
 /**
@@ -495,17 +439,11 @@ export function useUploadEeDumpWithEcu() {
   >("/api/v4/analytics/upload-analytics", uploadEeDumpWithEcuMutation);
 }
 
-// ============================================
-// Export Types for External Use
-// ============================================
-
 export type {
   UploadAppLogsResponse,
-  UploadFlashLogsResponse,
   PostFlashSuccessResponse,
   UploadEeDumpResponse,
   UploadAppLogsParams,
-  UploadFlashLogsParams,
   PostFlashSuccessParams,
   UploadEeDumpParams,
 };

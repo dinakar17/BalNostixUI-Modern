@@ -1,4 +1,5 @@
 import Icon from "@expo/vector-icons/Feather";
+import { captureException, captureMessage } from "@sentry/react-native";
 import { router, useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -114,8 +115,19 @@ export default function WriteParametersScreen() {
       BluetoothModule.getWriteParameter(selectedEcu.index);
     } catch (err) {
       console.log("[WriteParameters] Error getting write parameter:", err);
+
+      // Capture error in fetching write parameters
+      captureException(err, {
+        tags: {
+          operation: "get_write_parameter",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+        },
+      });
     }
-  }, [selectedEcu.index]);
+  }, [selectedEcu.index, selectedEcu?.ecuName]);
 
   const getStatus = (message: string | null) => {
     try {
@@ -195,6 +207,22 @@ export default function WriteParametersScreen() {
 
   const handleFailureResponse = (responseString: string) => {
     isFlashingUpdated = false;
+
+    // Capture write parameter failure in Sentry
+    captureMessage("Write parameter failed", {
+      level: "error",
+      tags: {
+        operation: "write_parameter_failure",
+        ecu_name: selectedEcu?.ecuName || "unknown",
+      },
+      extra: {
+        failure_reason: responseString,
+        ecu_index: selectedEcu?.index,
+        parameter_description: editData?.editData?.description,
+        parameter_value: newValue,
+      },
+    });
+
     setWriteParameterFlashProgress({
       status: "Done",
       message: `Write Parameter failed :- ${responseString}`,
@@ -241,6 +269,19 @@ export default function WriteParametersScreen() {
           return null;
         }
       }
+
+      // Capture pro-pack API error in Sentry
+      captureException(error, {
+        tags: {
+          operation: "post_pro_pack_status",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          vin: selectedEcu?.vinNumber,
+          ecu_index: selectedEcu?.index,
+        },
+      });
+
       if (isFlashingUpdated) {
         isFlashingUpdated = false;
         setWriteParameterFlashProgress({
@@ -285,6 +326,22 @@ export default function WriteParametersScreen() {
         await sleep(10);
         if (totalTime > waitTimeByDefault) {
           isFlashingUpdated = false;
+
+          // Capture timeout error in Sentry
+          captureMessage("Write parameter timeout", {
+            level: "warning",
+            tags: {
+              operation: "write_parameter_timeout",
+              ecu_name: selectedEcu?.ecuName || "unknown",
+            },
+            extra: {
+              timeout_duration: waitTimeByDefault,
+              ecu_index: selectedEcu?.index,
+              parameter_description: description,
+              parameter_value: newValue,
+            },
+          });
+
           setWriteParameterFlashProgress({
             status: "Done",
             message: "Write Parameter failed :- Timeout",
@@ -296,6 +353,19 @@ export default function WriteParametersScreen() {
       }
     } catch (_error) {
       console.log("[WriteParameters] Error in getWriteParameters:", _error);
+
+      // Capture unexpected error in Sentry
+      captureException(_error, {
+        tags: {
+          operation: "write_parameter_exception",
+          ecu_name: selectedEcu?.ecuName || "unknown",
+        },
+        extra: {
+          ecu_index: selectedEcu?.index,
+          parameter_description: description,
+          parameter_value: newValue,
+        },
+      });
     }
   };
 

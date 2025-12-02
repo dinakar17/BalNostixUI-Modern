@@ -67,7 +67,7 @@ const config: ExpoConfig = {
   userInterfaceStyle: "light",
   splash: {
     image: "./src/assets/splash.png",
-    resizeMode: "contain",
+    resizeMode: "cover",
     backgroundColor: "#ffffff",
   },
   assetBundlePatterns: ["**/*"],
@@ -89,7 +89,7 @@ const config: ExpoConfig = {
       backgroundColor: "#ffffff",
     },
     splash: {
-      image: "./src/assets/images/introImg.png",
+      image: "./src/assets/bajaj-logo.jpg",
       resizeMode: "cover",
       backgroundColor: "#ffffff",
     },
@@ -107,8 +107,6 @@ const config: ExpoConfig = {
       "ACCESS_COARSE_LOCATION",
       // Other app permissions
       "CAMERA",
-      "WRITE_EXTERNAL_STORAGE",
-      "READ_EXTERNAL_STORAGE",
     ],
   },
   extra: {

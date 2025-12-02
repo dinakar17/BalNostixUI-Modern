@@ -172,7 +172,6 @@ export default function WriteVinScreen() {
   const onResponse = (response: {
     name: string;
     value: FlashingState & { status: string };
-    // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Complex VIN write response handling required
   }) => {
     if (response.name === "updateWriteVin") {
       const flashResponse = {
@@ -185,11 +184,9 @@ export default function WriteVinScreen() {
         flashResponse.subProgress === -1
       ) {
         eventSubscriptionRef.current?.remove();
-        const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (Module as any).unSubscribeToWriteVinUpdate?.();
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (Module as any).stopAllTimersFromReact?.();
+        // const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
+        BluetoothModule.unSubscribeToWriteVinUpdate?.();
+        BluetoothModule.stopAllTimersFromReact?.();
         isFlashingUpdatedRef.current = false;
         setShowProgressOverlay(false);
         setIsFlashing(false);
@@ -200,11 +197,9 @@ export default function WriteVinScreen() {
 
       if (flashResponse.mainProgress === 100) {
         setFlashingState({ ...flashResponse, status: "DONE" });
-        const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (Module as any).unSubscribeToWriteVinUpdate?.();
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (Module as any).stopAllTimersFromReact?.();
+        // const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
+        BluetoothModule.unSubscribeToWriteVinUpdate?.();
+        BluetoothModule.stopAllTimersFromReact?.();
         eventSubscriptionRef.current?.remove();
         isFlashingUpdatedRef.current = false;
         return;
@@ -216,12 +211,11 @@ export default function WriteVinScreen() {
 
   const reProgram = async () => {
     try {
-      const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
+      // const Module = dataTransferMode === "USB" ? USBModule : BluetoothModule;
+      // Note: USBModule doesn't have subscribeToWriteVinUpdate method
+      BluetoothModule.subscribeToWriteVinUpdate(selectedEcu?.index, vinValue);
 
-      // biome-ignore lint/suspicious/noExplicitAny: Module methods
-      (Module as any).subscribeToWriteVinUpdate(selectedEcu?.index, vinValue);
-
-      const eventEmitter = new NativeEventEmitter(Module);
+      const eventEmitter = new NativeEventEmitter(BluetoothModule);
       eventSubscriptionRef.current = eventEmitter.addListener(
         "updateWriteVin",
         onResponse

@@ -217,15 +217,11 @@ export default function WriteBinScreen() {
     try {
       setFailureMessage("");
 
-      const moduleToUse =
-        dataTransferMode === "USB" ? USBModule : BluetoothModule;
-      const eventEmitter = new NativeEventEmitter(moduleToUse);
+      // const moduleToUse =
+      //   dataTransferMode === "USB" ? USBModule : BluetoothModule;
+      const eventEmitter = new NativeEventEmitter(BluetoothModule);
 
-      // biome-ignore lint/suspicious/noExplicitAny: Module method
-      (moduleToUse as any).subscribeToWriteBinUpdate(
-        selectedEcu.index,
-        newValue
-      );
+      BluetoothModule.subscribeToWriteBinUpdate(selectedEcu.index, newValue);
       subscriptionRef.current = eventEmitter.addListener(
         "updateWriteBin",
         onResponse
@@ -267,15 +263,13 @@ export default function WriteBinScreen() {
     if (isFlashing) {
       return () => {
         subscriptionRef.current?.remove();
-        const moduleToUse =
-          dataTransferMode === "USB" ? USBModule : BluetoothModule;
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (moduleToUse as any).unSubscribeToWriteBinUpdate?.();
-        // biome-ignore lint/suspicious/noExplicitAny: Module methods
-        (moduleToUse as any).stopAllTimersFromReact?.();
+        // const moduleToUse =
+        //   dataTransferMode === "USB" ? USBModule : BluetoothModule;
+        BluetoothModule.unSubscribeToWriteBinUpdate?.();
+        BluetoothModule.stopAllTimersFromReact?.();
       };
     }
-  }, [isFlashing, dataTransferMode]);
+  }, [isFlashing]);
 
   // Initial validation on mount (commented in old code, but keeping for consistency)
   useEffect(() => {

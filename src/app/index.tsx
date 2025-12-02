@@ -1,6 +1,5 @@
 import { Camera } from "expo-camera";
 import { requestForegroundPermissionsAsync } from "expo-location";
-import { requestPermissionsAsync } from "expo-media-library";
 import { useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -35,7 +34,6 @@ const delay = (ms: number) => new Promise((res) => setTimeout(res, ms));
 type PermissionStatus = {
   location: boolean;
   camera: boolean;
-  storage: boolean;
   bluetooth: boolean;
 };
 
@@ -47,7 +45,6 @@ const requestAllPermissions = async (): Promise<{
   const status: PermissionStatus = {
     location: false,
     camera: false,
-    storage: false,
     bluetooth: false,
   };
   const deniedPermissions: string[] = [];
@@ -65,13 +62,6 @@ const requestAllPermissions = async (): Promise<{
     status.camera = cameraResult.status === "granted";
     if (!status.camera) {
       deniedPermissions.push("Camera");
-    }
-
-    // Request Storage Permission (Read/Write External Storage)
-    const storageResult = await requestPermissionsAsync();
-    status.storage = storageResult.status === "granted";
-    if (!status.storage) {
-      deniedPermissions.push("Storage (for reading/writing files)");
     }
 
     // Request Bluetooth Permissions (Android 12+)
@@ -99,8 +89,7 @@ const requestAllPermissions = async (): Promise<{
       status.bluetooth = true;
     }
 
-    const allGranted =
-      status.location && status.camera && status.storage && status.bluetooth;
+    const allGranted = status.location && status.camera && status.bluetooth;
 
     return {
       granted: allGranted,
