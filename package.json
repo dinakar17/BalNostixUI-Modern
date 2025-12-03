@@ -5,6 +5,7 @@
   "scripts": {
     "start": "expo start",
     "prebuild": "expo prebuild",
+    "prebuild:clean": "expo prebuild --clean",
     "start:dev": "cross-env EXPO_PUBLIC_APP_VARIANT=development expo start",
     "start:uat": "cross-env EXPO_PUBLIC_APP_VARIANT=uat expo start",
     "start:prod": "cross-env EXPO_PUBLIC_APP_VARIANT=production expo start",
@@ -14,7 +15,7 @@
     "android:uat:release": "cross-env EXPO_PUBLIC_APP_VARIANT=uat expo run:android --variant uatRelease",
     "android:prod": "cross-env EXPO_PUBLIC_APP_VARIANT=production expo run:android --variant prodDebug",
     "android:prod:release": "cross-env EXPO_PUBLIC_APP_VARIANT=production expo run:android --variant prodRelease",
-    "build:apk:dev": "cd android && && cross-env EXPO_PUBLIC_APP_VARIANT=development gradlew.bat assembleDevDebug && cd ..",
+    "build:apk:dev": "cd android && cross-env EXPO_PUBLIC_APP_VARIANT=development gradlew.bat assembleDevDebug && cd ..",
     "build:apk:dev:release": "cd android && cross-env EXPO_PUBLIC_APP_VARIANT=development gradlew.bat assembleDevRelease && cd ..",
     "build:apk:uat": "cd android && cross-env EXPO_PUBLIC_APP_VARIANT=uat gradlew.bat assembleUatDebug && cd ..",
     "build:apk:uat:release": "cd android && cross-env EXPO_PUBLIC_APP_VARIANT=uat gradlew.bat assembleUatRelease && cd ..",

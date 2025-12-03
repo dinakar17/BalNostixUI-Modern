@@ -117,6 +117,7 @@ export default function ReadParametersScreen() {
         Number.parseInt(ecuIndex || "0", 10)
       );
       if (fetchedGroups && fetchedGroups.length > 0) {
+        console.log("[ReadParameters] Fetched Groups:", fetchedGroups);
         setAvailableGroups(fetchedGroups);
         // Default to first group (Group A)
         const defaultGroup = fetchedGroups[0];

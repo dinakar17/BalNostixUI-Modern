@@ -13,7 +13,15 @@ import fs from "fs-extra";
  * 1. Copies native Java modules from native-modules/ to android/
  * 2. Copies BalDongleLib AAR to android/app/libs/
  * 3. Updates build.gradle with dependencies
- * 4. Registers CustomModulePackage in MainApplication.kt
+ * 4. Updates versionCode and versionName from environment variables
+ * 5. Adds product flavors (dev, uat, prod)
+ * 6. Registers CustomModulePackage in MainApplication.kt
+ *
+ * Version Management:
+ * - Set EXPO_PUBLIC_APP_VERSION for versionName (e.g., "1.2.3")
+ * - Set EXPO_PUBLIC_VERSION_CODE for versionCode (e.g., "123")
+ * - These are automatically injected during prebuild
+ * - See docs/VERSION_MANAGEMENT.md for details
  */
 
 const PACKAGE_NAME = "com.nostix";
@@ -28,6 +36,8 @@ const GET_PACKAGES_REGEX =
 const DEPENDENCY_PACKAGE_REGEX = /"([^"]+)"/;
 const ANDROID_BLOCK_REGEX = /android\s*\{/;
 const DEFAULT_CONFIG_REGEX = /defaultConfig\s*\{\s*[\s\S]*?\n\s{4}\}/;
+const VERSION_CODE_REGEX = /versionCode\s+\d+/;
+const VERSION_NAME_REGEX = /versionName\s+"[^"]*"/;
 
 /**
  * Copy native module Java files
@@ -285,6 +295,49 @@ const withNativeModuleDependencies: ConfigPlugin = (config) => {
 };
 
 /**
+ * Update versionCode and versionName from environment variables
+ */
+const withVersioning: ConfigPlugin = (config) => {
+  return withDangerousMod(config, [
+    "android",
+    async (modConfig) => {
+      const buildGradlePath = path.join(
+        modConfig.modRequest.platformProjectRoot,
+        "app/build.gradle"
+      );
+
+      let buildGradleContent = await fs.readFile(buildGradlePath, "utf8");
+
+      // Get version from environment variables or config
+      const versionName =
+        process.env.EXPO_PUBLIC_APP_VERSION || modConfig.version || "1.0.0";
+      const versionCode = process.env.EXPO_PUBLIC_VERSION_CODE || "1";
+
+      console.log("📝 Updating app version...");
+      console.log(`   Version Name: ${versionName}`);
+      console.log(`   Version Code: ${versionCode}`);
+
+      // Update versionCode
+      buildGradleContent = buildGradleContent.replace(
+        VERSION_CODE_REGEX,
+        `versionCode ${versionCode}`
+      );
+
+      // Update versionName
+      buildGradleContent = buildGradleContent.replace(
+        VERSION_NAME_REGEX,
+        `versionName "${versionName}"`
+      );
+
+      await fs.writeFile(buildGradlePath, buildGradleContent);
+      console.log("✅ App version updated");
+
+      return modConfig;
+    },
+  ]);
+};
+
+/**
  * Add product flavors for app variants (dev, uat, prod)
  */
 const withProductFlavors: ConfigPlugin = (config) => {
@@ -437,6 +490,7 @@ const withNativeModules: ConfigPlugin<{ aarPath?: string } | undefined> = (
     withNativeModuleFiles,
     [withBalDongleLib, props],
     withNativeModuleDependencies,
+    withVersioning,
     withProductFlavors,
     withCustomModulePackage,
   ]);

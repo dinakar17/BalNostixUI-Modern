@@ -11,7 +11,7 @@ const ENV_NAME =
 
 console.log(`Determined ENV_NAME: ${ENV_NAME}`);
 
-const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.0.84";
+const APP_VERSION = process.env.EXPO_PUBLIC_APP_VERSION || "0.0.85";
 const APP_RELEASE_DATE = process.env.EXPO_PUBLIC_APP_RELEASE_DATE || "1";
 
 const ENV_CONFIG = {

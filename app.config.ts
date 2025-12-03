@@ -34,7 +34,7 @@ console.log(`Using app config for variant: ${APP_VARIANT}`);
 const config: ExpoConfig = {
   name: currentConfig.name,
   slug: "bal-nostix-ui",
-  version: "1.0.0",
+  version: process.env.EXPO_PUBLIC_APP_VERSION || "1.0.0",
   scheme: currentConfig.scheme,
   platforms: ["ios", "android"],
   web: {

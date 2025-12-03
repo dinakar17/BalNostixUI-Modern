@@ -21,6 +21,7 @@ import { CustomHeader } from "@/components/ui/header";
 import { OverlayView } from "@/components/ui/overlay";
 import { colors } from "@/constants/colors";
 import { metrics } from "@/constants/metrics";
+import { getHexFileNameFromGroupA } from "@/lib/hex-file-helper";
 import { toastError } from "@/lib/toast";
 import { useAuthStore } from "@/store/auth-store";
 import { useDataTransferStore } from "@/store/data-transfer-store";
@@ -61,6 +62,7 @@ export default function ControllerFlashScreen() {
     null
   );
   const [isPerFrameUpdateEnabled, setPerFrameUpdateEnabled] = useState(false);
+  const [hexFileName, setHexFileName] = useState<string | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionRef = useRef<{ remove: () => void } | null>(null);
@@ -460,6 +462,23 @@ export default function ControllerFlashScreen() {
     }
   }, [isFlashing]);
 
+  // Fetch hex file name from Group A parameters on mount
+  useEffect(() => {
+    const fetchHexFileName = async () => {
+      if (selectedEcu?.index !== undefined) {
+        try {
+          const fileName = await getHexFileNameFromGroupA(selectedEcu.index);
+          setHexFileName(fileName);
+          console.log("[ControllerFlash] Fetched hex file name:", fileName);
+        } catch (error) {
+          console.log("[ControllerFlash] Error fetching hex file name:", error);
+        }
+      }
+    };
+
+    fetchHexFileName();
+  }, [selectedEcu?.index]);
+
   // Handle back button
   const handleBackButton = React.useCallback(() => {
     if (isFlashing) {
@@ -566,7 +585,7 @@ export default function ControllerFlashScreen() {
                   // BluetoothModule.updateBootLoader(); // not needed
                 }}
                 primaryButtonText="OKAY"
-                secondDescription={`Ensure that ${selectedEcu?.oldHexFileName} is associated with ${selectedEcu?.ecuName}?`}
+                secondDescription={`New Hex: ${selectedEcu?.oldHexFileName || "N/A"}\nCurrent Hex: ${hexFileName || "N/A"}\n\nEnsure the new hex file is the latest associated with ${selectedEcu?.ecuName}?`}
                 title="NOTE"
                 whiteButtonOnPress={() =>
                   router.dismissTo("/(main)/controllers/operations")
